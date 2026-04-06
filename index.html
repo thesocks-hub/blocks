@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Blocks</title>
+
+<!-- PWA -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#0f0f0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Blocks">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --bg2: #1a1a1a;
+    --bg3: #242424;
+    --border: #2e2e2e;
+    --text: #f0ede8;
+    --text2: #888;
+    --text3: #555;
+    --accent: #c8b89a;
+    --accent2: #8b7355;
+    --danger: #c0614a;
+    --success: #5a9e6e;
+    --radius: 8px;
+    --font: 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); }
+
+  #app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; padding-top: var(--safe-top); }
+
+  /* ========== SIDEBAR ========== */
+  #sidebar {
+    width: 220px;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  #logo {
+    padding: 20px 16px 16px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #logo span { font-size: 10px; color: var(--text3); display: block; letter-spacing: 0.05em; margin-top: 2px; font-weight: 400; }
+
+  .nav-item {
+    padding: 10px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text2);
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+  }
+  .nav-item:hover { color: var(--text); background: var(--bg3); }
+  .nav-item.active { color: var(--accent); background: var(--bg3); border-right: 2px solid var(--accent); }
+  .nav-section { padding: 16px 16px 6px; font-size: 10px; color: var(--text3); letter-spacing: 0.08em; }
+
+  .work-item {
+    padding: 8px 12px 8px 16px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text2);
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-left: 3px solid transparent;
+    user-select: none;
+  }
+  .work-item:hover { color: var(--text); background: var(--bg3); }
+  .work-item.active { color: var(--text); border-left-color: var(--accent); background: var(--bg3); }
+  .work-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .work-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .sidebar-footer { margin-top: auto; padding: 12px; border-top: 1px solid var(--border); flex-shrink: 0; padding-bottom: calc(12px + var(--safe-bottom)); }
+  .btn-add {
+    width: 100%; padding: 8px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    border-radius: var(--radius);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font);
+  }
+  .btn-add:hover { border-color: var(--accent2); color: var(--accent); }
+
+  /* ========== MAIN ========== */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+  #topbar {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg);
+    flex-shrink: 0;
+  }
+  #topbar h2 { font-size: 15px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .btn {
+    padding: 6px 14px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font);
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    color: var(--text2);
+    white-space: nowrap;
+    user-select: none;
+  }
+  .btn:hover { color: var(--text); border-color: var(--accent2); }
+  .btn.primary { background: var(--accent2); color: var(--text); border-color: var(--accent2); }
+  .btn.primary:hover { background: var(--accent); border-color: var(--accent); }
+  .btn.danger { color: var(--danger); }
+  .btn.danger:hover { border-color: var(--danger); background: #1e1414; }
+
+  #content-wrap { flex: 1; display: flex; overflow: hidden; }
+  #content { flex: 1; overflow-y: auto; padding: 20px; padding-bottom: calc(20px + var(--safe-bottom)); }
+
+  /* ========== CALENDAR ========== */
+  .cal-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .cal-month { font-size: 20px; font-weight: 600; }
+  .cal-nav {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text2);
+    width: 28px; height: 28px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .cal-nav:hover { color: var(--text); border-color: var(--accent2); }
+
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .cal-dow { text-align: center; font-size: 11px; color: var(--text3); padding: 6px 0; }
+  .cal-dow.work-day { color: var(--accent2); }
+
+  .cal-cell {
+    min-height: 88px;
+    background: var(--bg2);
+    border-radius: 6px;
+    padding: 5px;
+    cursor: pointer;
+    transition: background 0.1s;
+    border: 1px solid transparent;
+    overflow: hidden;
+  }
+  .cal-cell:hover { background: var(--bg3); border-color: var(--border); }
+  .cal-cell.other-month { opacity: 0.25; pointer-events: none; }
+  .cal-cell.today { border-color: var(--accent2); }
+  .cal-cell.work-day-cell { background: #1e1c18; }
+  .cal-date { font-size: 11px; color: var(--text3); margin-bottom: 3px; }
+  .cal-cell.today .cal-date { color: var(--accent); font-weight: 700; }
+
+  .block-chip {
+    font-size: 10px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    margin-bottom: 2px;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  .block-chip.drawing { background: #1e3a2e; color: #6dbf8a; }
+  .block-chip.task    { background: #1e2a3a; color: #6a9abf; }
+  .block-chip.deadline { background: #3a2a1e; color: #d4915a; font-weight: 600; }
+  .block-chip.name-deadline { background: #3a1e1e; color: #e07070; font-weight: 600; }
+  .block-chip.done { opacity: 0.45; text-decoration: line-through; }
+
+  /* ========== WORKS LIST ========== */
+  .work-card {
+    background: var(--bg2);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-left: 3px solid transparent;
+  }
+  .work-card:hover { background: var(--bg3); }
+  .work-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .work-meta { font-size: 12px; color: var(--text2); display: flex; gap: 14px; flex-wrap: wrap; }
+  .progress-bar { height: 3px; background: var(--bg3); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 2px; transition: width 0.4s; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+  .badge.ok      { background: #1e3a2e; color: #6dbf8a; }
+  .badge.ng      { background: #3a1e1e; color: #e07070; }
+  .badge.pending { background: var(--bg3); color: var(--text3); }
+
+  /* ========== WORK DETAIL ========== */
+  .work-detail-header {
+    background: var(--bg2);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 14px;
+    border-left: 3px solid transparent;
+  }
+  .block-row {
+    background: var(--bg2);
+    border-radius: var(--radius);
+    padding: 11px 14px;
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid transparent;
+    transition: border-color 0.15s;
+  }
+  .block-row:hover { border-color: var(--border); }
+  .block-row.done { opacity: 0.45; }
+  .block-row.name-row { background: #1e1414; border-color: #3a2020; }
+
+  .check-box {
+    width: 17px; height: 17px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .block-row.done .check-box { background: var(--success); border-color: var(--success); }
+
+  .block-info { flex: 1; min-width: 0; }
+  .block-name { font-size: 13px; }
+  .block-date { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  .block-pages { font-size: 12px; color: var(--accent2); white-space: nowrap; }
+  .block-mins  { font-size: 11px; color: var(--text3); white-space: nowrap; }
+
+  .section-label { padding: 14px 0 5px; font-size: 10px; color: var(--text3); letter-spacing: 0.08em; }
+
+  /* ========== INFO BOXES ========== */
+  .alert-box { background: #1e1414; border: 1px solid #3a2020; border-radius: var(--radius); padding: 10px 12px; font-size: 12px; color: #e07070; margin-bottom: 12px; }
+  .info-box  { background: #1e2a1e; border: 1px solid #2a3a2a; border-radius: var(--radius); padding: 10px 12px; font-size: 12px; color: #7abf8a; margin-bottom: 12px; }
+  .warn-box  { background: #2a2010; border: 1px solid #3a3020; border-radius: var(--radius); padding: 10px 12px; font-size: 12px; color: #c8a060; margin-bottom: 12px; }
+
+  /* ========== MODAL ========== */
+  #modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.78);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 20px;
+  }
+  #modal-overlay.open { display: flex; }
+  #modal {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    width: 420px;
+    max-width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  #modal h3 { font-size: 15px; margin-bottom: 18px; color: var(--accent); }
+  .form-row { margin-bottom: 14px; }
+  .form-row label { font-size: 11px; color: var(--text3); display: block; margin-bottom: 5px; letter-spacing: 0.04em; }
+  .form-row input,
+  .form-row select,
+  .form-row textarea {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-family: var(--font);
+    outline: none;
+    -webkit-appearance: none;
+  }
+  .form-row input:focus,
+  .form-row select:focus,
+  .form-row textarea:focus { border-color: var(--accent2); }
+  .form-row input[type="color"] { height: 36px; padding: 3px; cursor: pointer; }
+  .form-row input[type="number"] { -moz-appearance: textfield; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  /* ========== DETAIL PANEL ========== */
+  #detail-panel {
+    width: 260px;
+    background: var(--bg2);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    display: none;
+    flex-shrink: 0;
+  }
+  #detail-panel.open { display: block; }
+  #detail-panel h4 { font-size: 13px; color: var(--accent); margin-bottom: 14px; }
+  .dp-row { font-size: 12px; margin-bottom: 9px; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .dp-row .lbl { color: var(--text3); white-space: nowrap; }
+  .dp-row .val { text-align: right; }
+  .dp-actions { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+
+  /* ========== MOBILE BOTTOM NAV ========== */
+  #bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    padding: 8px 0;
+    padding-bottom: calc(8px + var(--safe-bottom));
+    z-index: 100;
+  }
+  .bnav-inner { display: flex; justify-content: space-around; }
+  .bnav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; color: var(--text3); font-size: 10px; padding: 4px 16px; transition: color 0.15s; }
+  .bnav-item.active { color: var(--accent); }
+  .bnav-item svg { width: 20px; height: 20px; }
+
+  /* ========== SCROLLBAR ========== */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ========== RESPONSIVE ========== */
+  @media (max-width: 768px) {
+    #sidebar { display: none; }
+    #bottom-nav { display: block; }
+    #content { padding-bottom: calc(80px + var(--safe-bottom)); }
+    .cal-cell { min-height: 60px; }
+    .cal-dow { font-size: 10px; }
+    #detail-panel { display: none !important; }
+  }
+  @media (max-width: 500px) {
+    .cal-cell { min-height: 48px; padding: 3px; }
+    .block-chip { font-size: 9px; padding: 1px 3px; }
+  }
+
+  /* ========== EMPTY STATE ========== */
+  .empty-state { text-align: center; color: var(--text3); padding: 60px 20px; }
+  .empty-state p { margin-bottom: 20px; font-size: 14px; line-height: 1.8; }
+
+  /* ========== UPDATE BANNER ========== */
+  #update-banner {
+    display: none;
+    background: var(--accent2);
+    color: var(--text);
+    font-size: 12px;
+    padding: 8px 16px;
+    text-align: center;
+    cursor: pointer;
+    position: fixed;
+    top: var(--safe-top);
+    left: 0; right: 0;
+    z-index: 300;
+  }
+</style>
+</head>
+<body>
+
+<div id="update-banner" onclick="reloadApp()">🔄 新しいバージョンが利用可能です。タップして更新</div>
+
+<div id="app">
+  <!-- SIDEBAR (desktop) -->
+  <div id="sidebar">
+    <div id="logo">BLOCKS<span>schedule manager</span></div>
+    <div class="nav-item active" id="nav-cal" onclick="switchView('calendar')">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      カレンダー
+    </div>
+    <div class="nav-item" id="nav-works" onclick="switchView('works')">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+      作品一覧
+    </div>
+    <div class="nav-section">作品</div>
+    <div id="sidebar-works"></div>
+    <div class="sidebar-footer">
+      <button class="btn-add" onclick="openNewWork()">＋ 新しい作品</button>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="main">
+    <div id="topbar">
+      <h2 id="topbar-title">カレンダー</h2>
+      <div id="topbar-actions" style="display:flex;gap:6px;"></div>
+    </div>
+    <div id="content-wrap">
+      <div id="content">
+        <div id="view-calendar"></div>
+        <div id="view-works"    style="display:none;"></div>
+        <div id="view-detail"   style="display:none;"></div>
+      </div>
+      <div id="detail-panel"></div>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM NAV (mobile) -->
+<div id="bottom-nav">
+  <div class="bnav-inner">
+    <div class="bnav-item active" id="bnav-cal" onclick="switchView('calendar')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      カレンダー
+    </div>
+    <div class="bnav-item" id="bnav-works" onclick="switchView('works')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+      作品一覧
+    </div>
+    <div class="bnav-item" onclick="openNewWork()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      追加
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div id="modal-overlay" onclick="overlayClick(event)">
+  <div id="modal">
+    <h3 id="modal-title"></h3>
+    <div id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">キャンセル</button>
+      <button class="btn primary" id="modal-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DATA LAYER
+// ============================================================
+const COLORS = ['#c8b89a','#7abf8a','#7a9abf','#bf7a9a','#bfaa7a','#9a7abf','#7abfbf','#bf9a7a','#bf7a7a','#aabf7a'];
+const DAYS_JP = ['日','月','火','水','木','金','土'];
+// 稼働曜日: 火(2)=半日2p上限, 木(4)=4p, 金(5)=4p
+const WORK_DAY_CAP = { 2: 2, 4: 4, 5: 4 };
+
+let S = { works: [], blocks: [] }; // state
+
+function save() {
+  try { localStorage.setItem('blocks_v1', JSON.stringify(S)); } catch(e) { console.warn('save failed', e); }
+}
+function load() {
+  try {
+    const raw = localStorage.getItem('blocks_v1');
+    if (raw) { const d = JSON.parse(raw); if (d.works) S.works = d.works; if (d.blocks) S.blocks = d.blocks; }
+  } catch(e) {}
+  if (!S.works.length) seedDemo();
+}
+
+function seedDemo() {
+  const fri = getNextDow(new Date(), 5);
+  const w1 = newWork('月刊サンプル 第12話', 10, dateStr(fri), COLORS[0]);
+  const fri2 = getNextDow(addDays(fri, 7), 5);
+  const w2 = newWork('読切「春の終わり」', 8, dateStr(fri2), COLORS[1]);
+  S.works.push(w1, w2);
+  autoBlocks(w1);
+  autoBlocks(w2);
+  save();
+}
+
+function newWork(title, pages, deadline, color) {
+  return { id: uid(), title, pages, deadline, color, nameDeadline: null };
+}
+
+// ============================================================
+// SCHEDULING LOGIC
+// ============================================================
+function autoBlocks(work) {
+  // 既存の作画ブロックを削除して再生成
+  S.blocks = S.blocks.filter(b => !(b.workId === work.id && b.type === 'drawing'));
+
+  const deadline = parseDate(work.deadline);
+  let remaining = work.pages;
+  const generated = [];
+
+  // 締切日から1日前へ遡ってスロットを探す
+  const d = new Date(deadline);
+  d.setDate(d.getDate() - 1);
+  let watchdog = 90;
+
+  while (remaining > 0 && watchdog-- > 0) {
+    const dow = d.getDay();
+    if (WORK_DAY_CAP[dow] !== undefined) {
+      const pages = Math.min(WORK_DAY_CAP[dow], remaining);
+      remaining -= pages;
+      generated.unshift({ // 時系列順になるようunshift
+        id: uid(), workId: work.id, type: 'drawing',
+        date: dateStr(new Date(d)),
+        pages, mins: pages * 90, done: false
+      });
+    }
+    d.setDate(d.getDate() - 1);
+  }
+
+  S.blocks.push(...generated);
+  recalcName(work.id);
+}
+
+function recalcName(workId) {
+  const work = S.works.find(w => w.id === workId);
+  if (!work) return;
+  const drawing = S.blocks.filter(b => b.workId === workId && b.type === 'drawing');
+  if (!drawing.length) { work.nameDeadline = null; return; }
+  const earliest = drawing.map(b => parseDate(b.date)).sort((a,b) => a-b)[0];
+  // 最初の作画日の「前週の月曜」= そこから後退して月曜を探す
+  const prev = addDays(earliest, -1);
+  work.nameDeadline = dateStr(getPrevDow(prev, 1));
+  save();
+}
+
+function getProgress(workId) {
+  const bs = S.blocks.filter(b => b.workId === workId && b.type === 'drawing');
+  if (!bs.length) return { pct: 0, status: 'pending', done: 0, total: 0 };
+  const done = bs.filter(b => b.done).length;
+  const total = bs.length;
+  const pct = Math.round(done / total * 100);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const shouldDone = bs.filter(b => { const dd = parseDate(b.date); dd.setHours(0,0,0,0); return dd < today; }).length;
+  return { pct, status: done >= shouldDone ? 'ok' : 'ng', done, total };
+}
+
+// ============================================================
+// DATE UTILS
+// ============================================================
+function uid() { return Math.random().toString(36).slice(2,9); }
+function dateStr(d) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function pad(n) { return String(n).padStart(2,'0'); }
+function parseDate(s) { const [y,m,d] = s.split('-').map(Number); return new Date(y,m-1,d); }
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate()+n); return r; }
+function isSameDay(a,b) { return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate(); }
+function daysLeft(ds) { return Math.ceil((parseDate(ds)-new Date())/86400000); }
+function getNextDow(from, dow) { const d = new Date(from); while(d.getDay()!==dow) d.setDate(d.getDate()+1); return d; }
+function getPrevDow(from, dow) { const d = new Date(from); while(d.getDay()!==dow) d.setDate(d.getDate()-1); return d; }
+function fmtDate(ds) { const d = parseDate(ds); return `${d.getMonth()+1}/${d.getDate()}(${DAYS_JP[d.getDay()]})`; }
+
+// ============================================================
+// VIEW STATE
+// ============================================================
+let view = 'calendar';
+let selectedWork = null;
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+
+function switchView(v, workId) {
+  view = v;
+  selectedWork = workId || null;
+  closeDetailPanel();
+  document.getElementById('view-calendar').style.display = v==='calendar' ? '' : 'none';
+  document.getElementById('view-works').style.display    = v==='works'    ? '' : 'none';
+  document.getElementById('view-detail').style.display   = v==='detail'   ? '' : 'none';
+
+  ['cal','works'].forEach(k => {
+    document.getElementById('nav-'+k)?.classList.toggle('active', (k==='cal'&&v==='calendar')||(k==='works'&&(v==='works'||v==='detail')));
+    document.getElementById('bnav-'+k)?.classList.toggle('active', (k==='cal'&&v==='calendar')||(k==='works'&&(v==='works'||v==='detail')));
+  });
+
+  renderSidebarWorks();
+  renderTopbar();
+  if (v==='calendar') renderCalendar();
+  if (v==='works')    renderWorks();
+  if (v==='detail')   renderDetail();
+}
+
+function renderTopbar() {
+  const title = document.getElementById('topbar-title');
+  const acts  = document.getElementById('topbar-actions');
+  if (view==='calendar') {
+    title.textContent = 'カレンダー';
+    acts.innerHTML = `<button class="btn" onclick="exportData()">書き出し</button>`;
+  } else if (view==='works') {
+    title.textContent = '作品一覧';
+    acts.innerHTML = `<button class="btn primary" onclick="openNewWork()">＋ 新しい作品</button>`;
+  } else if (view==='detail') {
+    const w = S.works.find(w=>w.id===selectedWork);
+    title.textContent = w?.title||'';
+    acts.innerHTML = `<button class="btn" onclick="openAddTask('${selectedWork}')">＋ タスク</button><button class="btn" onclick="openEditWork('${selectedWork}')">編集</button>`;
+  }
+}
+
+function renderSidebarWorks() {
+  document.getElementById('sidebar-works').innerHTML = S.works.map(w => `
+    <div class="work-item ${selectedWork===w.id?'active':''}" onclick="switchView('detail','${w.id}')">
+      <div class="work-dot" style="background:${w.color}"></div>
+      <span class="work-item-label">${w.title}</span>
+    </div>`).join('');
+}
+
+// ============================================================
+// CALENDAR VIEW
+// ============================================================
+function renderCalendar() {
+  const el = document.getElementById('view-calendar');
+  const y = calYear, m = calMonth;
+  const first = new Date(y,m,1);
+  const last  = new Date(y,m+1,0);
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  let html = `
+    <div class="cal-header">
+      <button class="cal-nav" onclick="calNav(-1)">◂</button>
+      <span class="cal-month">${y}年${m+1}月</span>
+      <button class="cal-nav" onclick="calNav(1)">▸</button>
+      <button class="btn" onclick="calGoToday()">今日</button>
+    </div>
+    <div class="cal-grid">
+      ${DAYS_JP.map((d,i)=>`<div class="cal-dow ${WORK_DAY_CAP[i]!==undefined?'work-day':''}">${d}</div>`).join('')}
+  `;
+
+  // 前月の埋め
+  for (let i=0; i<first.getDay(); i++) {
+    html += `<div class="cal-cell other-month"></div>`;
+  }
+  // 当月
+  for (let day=1; day<=last.getDate(); day++) {
+    const date = new Date(y,m,day);
+    const ds   = dateStr(date);
+    const dow  = date.getDay();
+    const isToday = isSameDay(date, today);
+    const isWork  = WORK_DAY_CAP[dow] !== undefined;
+    let cls = 'cal-cell';
+    if (isToday) cls += ' today';
+    if (isWork)  cls += ' work-day-cell';
+
+    let chips = '';
+    S.works.forEach(w => {
+      if (w.nameDeadline === ds)
+        chips += `<div class="block-chip name-deadline" onclick="switchView('detail','${w.id}')">✎〆 ${w.title.slice(0,8)}</div>`;
+      if (w.deadline === ds)
+        chips += `<div class="block-chip deadline" style="border-left-color:${w.color}" onclick="switchView('detail','${w.id}')">⚑ ${w.title.slice(0,8)}</div>`;
+    });
+    S.blocks.filter(b=>b.date===ds).forEach(b => {
+      const w = S.works.find(w=>w.id===b.workId);
+      if (!w) return;
+      const lbl = b.type==='drawing' ? `${b.pages}p` : (b.title||'タスク');
+      chips += `<div class="block-chip ${b.type} ${b.done?'done':''}" style="border-left-color:${w.color}" onclick="openBlockPanel('${b.id}',event)">${lbl} ${w.title.slice(0,5)}</div>`;
+    });
+
+    html += `<div class="${cls}"><div class="cal-date">${day}</div>${chips}</div>`;
+  }
+  // 翌月の埋め
+  const endDow = last.getDay();
+  for (let i=1; i<7-endDow; i++) {
+    html += `<div class="cal-cell other-month"></div>`;
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function calNav(d) {
+  calMonth += d;
+  if (calMonth>11){calMonth=0;calYear++;}
+  if (calMonth<0) {calMonth=11;calYear--;}
+  renderCalendar();
+}
+function calGoToday() {
+  const t = new Date();
+  calYear=t.getFullYear(); calMonth=t.getMonth();
+  renderCalendar();
+}
+
+// ============================================================
+// WORKS VIEW
+// ============================================================
+function renderWorks() {
+  const el = document.getElementById('view-works');
+  if (!S.works.length) {
+    el.innerHTML = `<div class="empty-state"><p>まだ作品がありません。<br>最初の作品を追加して<br>スケジュールを自動生成しましょう。</p><button class="btn primary" onclick="openNewWork()">＋ 新しい作品を追加</button></div>`;
+    return;
+  }
+  el.innerHTML = S.works.map(w => {
+    const prog = getProgress(w.id);
+    const dl = daysLeft(w.deadline);
+    return `<div class="work-card" style="border-left-color:${w.color}" onclick="switchView('detail','${w.id}')">
+      <div class="work-title">${w.title}</div>
+      <div class="work-meta">
+        <span>📄 ${w.pages}p</span>
+        <span>⚑ ${fmtDate(w.deadline)} 残${dl}日</span>
+        ${w.nameDeadline?`<span style="color:#e07070">✎ ネーム〆 ${fmtDate(w.nameDeadline)}</span>`:''}
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${prog.pct}%;background:${w.color}"></div></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+        <span class="badge ${prog.status}">${prog.status==='ok'?'進捗OK':prog.status==='ng'?'進捗NG':'—'}</span>
+        <span style="font-size:11px;color:var(--text3)">${prog.done}/${prog.total}日完了 (${prog.pct}%)</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// WORK DETAIL VIEW
+// ============================================================
+function renderDetail() {
+  const el = document.getElementById('view-detail');
+  const work = S.works.find(w=>w.id===selectedWork);
+  if (!work) { el.innerHTML=''; return; }
+
+  const prog = getProgress(work.id);
+  const dl = daysLeft(work.deadline);
+  const drawBlocks = S.blocks.filter(b=>b.workId===work.id&&b.type==='drawing').sort((a,b)=>a.date.localeCompare(b.date));
+  const taskBlocks = S.blocks.filter(b=>b.workId===work.id&&b.type!=='drawing').sort((a,b)=>a.date.localeCompare(b.date));
+
+  let html = `
+    <div class="work-detail-header" style="border-left-color:${work.color}">
+      <div style="font-size:17px;font-weight:700;margin-bottom:7px;">${work.title}</div>
+      <div style="font-size:12px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap;">
+        <span>📄 ${work.pages}p</span>
+        <span>⚑ ${fmtDate(work.deadline)} 残${dl}日</span>
+        ${work.nameDeadline?`<span style="color:#e07070">✎ ネーム〆 ${fmtDate(work.nameDeadline)}</span>`:''}
+      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${prog.pct}%;background:${work.color}"></div></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:9px;">
+        <span class="badge ${prog.status}">${prog.status==='ok'?'進捗OK':prog.status==='ng'?'進捗NG':'未開始'}</span>
+        <span style="font-size:12px;color:var(--text2)">${prog.done}/${prog.total}日完了 (${prog.pct}%)</span>
+      </div>
+    </div>
+  `;
+
+  if (work.nameDeadline) {
+    html += `<div class="alert-box">✎ ネーム締切: <strong>${work.nameDeadline}(${DAYS_JP[parseDate(work.nameDeadline).getDay()]})</strong> — 最初の作画日の前の月曜</div>`;
+  }
+
+  html += `<div class="section-label">作画ブロック</div>`;
+
+  if (work.nameDeadline) {
+    html += `<div class="block-row name-row">
+      <div style="font-size:14px;color:#e07070;width:17px;flex-shrink:0;">✎</div>
+      <div class="block-info">
+        <div class="block-name" style="color:#e07070;">ネーム締切</div>
+        <div class="block-date">${fmtDate(work.nameDeadline)}</div>
+      </div>
+    </div>`;
+  }
+
+  drawBlocks.forEach(b => {
+    html += renderBlockRow(b, work);
+  });
+
+  if (taskBlocks.length) {
+    html += `<div class="section-label">タスク・打ち合わせ</div>`;
+    taskBlocks.forEach(b => {
+      html += renderBlockRow(b, work);
+    });
+  }
+
+  el.innerHTML = html;
+}
+
+function renderBlockRow(b, work) {
+  const checkSVG = `<svg width="10" height="10" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2.5"/></svg>`;
+  const isDrawing = b.type === 'drawing';
+  return `<div class="block-row ${b.done?'done':''}" id="brow-${b.id}">
+    <div class="check-box" onclick="toggleDone('${b.id}')">${b.done?checkSVG:''}</div>
+    <div class="block-info">
+      <div class="block-name">${isDrawing?`作画 ${b.pages}p`:(b.title||'タスク')}</div>
+      <div class="block-date">${fmtDate(b.date)}</div>
+    </div>
+    ${isDrawing?`<div class="block-pages">${b.pages}p</div><div class="block-mins">${b.mins}m</div>`:''}
+    ${isDrawing
+      ?`<button class="btn" style="padding:3px 8px;font-size:11px;" onclick="openMoveBlock('${b.id}')">移動</button>`
+      :`<button class="btn danger" style="padding:3px 8px;font-size:11px;" onclick="deleteBlock('${b.id}')">削除</button>`
+    }
+  </div>`;
+}
+
+// ============================================================
+// BLOCK ACTIONS
+// ============================================================
+function toggleDone(blockId) {
+  const b = S.blocks.find(b=>b.id===blockId);
+  if (!b) return;
+  b.done = !b.done;
+  save();
+  if (view==='detail') renderDetail();
+  if (view==='calendar') renderCalendar();
+}
+
+function deleteBlock(blockId) {
+  S.blocks = S.blocks.filter(b=>b.id!==blockId);
+  save();
+  if (view==='detail') renderDetail();
+}
+
+function openBlockPanel(blockId, e) {
+  e && e.stopPropagation();
+  const b = S.blocks.find(b=>b.id===blockId);
+  if (!b) return;
+  const w = S.works.find(w=>w.id===b.workId);
+  const p = document.getElementById('detail-panel');
+  p.classList.add('open');
+  const checkSVG = `<svg width="10" height="10" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2.5"/></svg>`;
+  p.innerHTML = `
+    <h4>${w?.title||''}</h4>
+    <div class="dp-row"><span class="lbl">種別</span><span class="val">${b.type==='drawing'?'作画':'タスク'}</span></div>
+    <div class="dp-row"><span class="lbl">日付</span><span class="val">${fmtDate(b.date)}</span></div>
+    ${b.type==='drawing'?`
+    <div class="dp-row"><span class="lbl">ページ数</span><span class="val">${b.pages}p</span></div>
+    <div class="dp-row"><span class="lbl">作業時間</span><span class="val">${b.mins}分</span></div>`:''}
+    <div class="dp-row"><span class="lbl">状態</span><span class="val"><span class="badge ${b.done?'ok':'pending'}">${b.done?'完了':'未完了'}</span></span></div>
+    <div class="dp-actions">
+      <button class="btn" onclick="toggleDone('${b.id}');openBlockPanel('${b.id}')">${b.done?'未完了に戻す':'完了にする'}</button>
+      ${b.type==='drawing'?`<button class="btn" onclick="openMoveBlock('${b.id}');closeDetailPanel()">別の日に移動</button>`:''}
+      <button class="btn" onclick="switchView('detail','${b.workId}');closeDetailPanel()">作品詳細を見る</button>
+      <button class="btn" style="margin-top:8px;color:var(--text3);font-size:11px;" onclick="closeDetailPanel()">閉じる</button>
+    </div>
+  `;
+}
+function closeDetailPanel() {
+  document.getElementById('detail-panel').classList.remove('open');
+  document.getElementById('detail-panel').innerHTML = '';
+}
+
+// ============================================================
+// MODALS
+// ============================================================
+let _modalOk = null;
+function openModal(title, body, okLabel, cb) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal-ok').textContent = okLabel;
+  document.getElementById('modal-ok').onclick = cb;
+  _modalOk = cb;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+function overlayClick(e) {
+  if (e.target.id==='modal-overlay') closeModal();
+}
+function modalOk() { if (_modalOk) _modalOk(); }
+
+function openNewWork() {
+  const defColor = COLORS[S.works.length % COLORS.length];
+  const defFri = dateStr(getNextDow(new Date(),5));
+  openModal('新しい作品', `
+    <div class="form-row"><label>タイトル</label><input id="mi-title" placeholder="例: 月刊○○ 第13話" /></div>
+    <div class="form-row"><label>ページ数</label><input id="mi-pages" type="number" value="8" min="1" max="200" /></div>
+    <div class="form-row"><label>締切日</label><input id="mi-deadline" type="date" value="${defFri}" /></div>
+    <div class="form-row"><label>カラー</label><input id="mi-color" type="color" value="${defColor}" /></div>
+    <div class="info-box">ページ数・締切からブロックを自動生成し、ネーム締切を逆算します</div>
+  `, '作成', () => {
+    const title    = document.getElementById('mi-title').value.trim();
+    const pages    = parseInt(document.getElementById('mi-pages').value)||0;
+    const deadline = document.getElementById('mi-deadline').value;
+    const color    = document.getElementById('mi-color').value;
+    if (!title||!pages||!deadline) return alert('全項目を入力してください');
+    const w = newWork(title, pages, deadline, color);
+    S.works.push(w);
+    autoBlocks(w);
+    save();
+    closeModal();
+    switchView('detail', w.id);
+  });
+}
+
+function openEditWork(workId) {
+  const w = S.works.find(w=>w.id===workId);
+  if (!w) return;
+  openModal('作品を編集', `
+    <div class="form-row"><label>タイトル</label><input id="mi-title" value="${w.title}" /></div>
+    <div class="form-row"><label>ページ数</label><input id="mi-pages" type="number" value="${w.pages}" min="1" /></div>
+    <div class="form-row"><label>締切日</label><input id="mi-deadline" type="date" value="${w.deadline}" /></div>
+    <div class="form-row"><label>カラー</label><input id="mi-color" type="color" value="${w.color}" /></div>
+    <div class="warn-box">ページ数・締切を変更すると作画ブロックが再生成されます（完了状態はリセット）</div>
+    <hr style="border-color:var(--border);margin:14px 0;">
+    <button class="btn danger" style="width:100%" onclick="confirmDeleteWork('${w.id}')">この作品を削除する</button>
+  `, '保存', () => {
+    w.title    = document.getElementById('mi-title').value.trim();
+    w.pages    = parseInt(document.getElementById('mi-pages').value)||w.pages;
+    w.deadline = document.getElementById('mi-deadline').value||w.deadline;
+    w.color    = document.getElementById('mi-color').value;
+    autoBlocks(w);
+    save();
+    closeModal();
+    switchView('detail', w.id);
+  });
+}
+
+function confirmDeleteWork(workId) {
+  const w = S.works.find(w=>w.id===workId);
+  if (!w) return;
+  if (!confirm(`「${w.title}」と全ブロックを削除しますか？`)) return;
+  S.works  = S.works.filter(w=>w.id!==workId);
+  S.blocks = S.blocks.filter(b=>b.workId!==workId);
+  save();
+  closeModal();
+  switchView('works');
+}
+
+function openAddTask(workId) {
+  openModal('タスク・打ち合わせを追加', `
+    <div class="form-row"><label>タスク名</label><input id="mi-ttitle" placeholder="例: 担当者と打ち合わせ" /></div>
+    <div class="form-row"><label>日付</label><input id="mi-tdate" type="date" value="${dateStr(new Date())}" /></div>
+  `, '追加', () => {
+    const title = document.getElementById('mi-ttitle').value.trim();
+    const date  = document.getElementById('mi-tdate').value;
+    if (!title||!date) return;
+    S.blocks.push({ id: uid(), workId, type: 'task', title, date, done: false });
+    save();
+    closeModal();
+    if (view==='detail') renderDetail();
+    if (view==='calendar') renderCalendar();
+  });
+}
+
+function openMoveBlock(blockId) {
+  const b = S.blocks.find(b=>b.id===blockId);
+  if (!b) return;
+  openModal('ブロックを移動', `
+    <div class="form-row"><label>現在の日付</label><input disabled value="${fmtDate(b.date)}" style="opacity:0.6" /></div>
+    <div class="form-row"><label>移動先の日付</label><input id="mi-mdate" type="date" value="${b.date}" /></div>
+    <div class="info-box">移動するとネーム締切日が自動で再計算されます</div>
+  `, '移動', () => {
+    const nd = document.getElementById('mi-mdate').value;
+    if (!nd||nd===b.date) { closeModal(); return; }
+    b.date = nd;
+    recalcName(b.workId);
+    save();
+    closeModal();
+    if (view==='detail') renderDetail();
+    if (view==='calendar') renderCalendar();
+  });
+}
+
+// ============================================================
+// EXPORT / IMPORT
+// ============================================================
+function exportData() {
+  const json = JSON.stringify({ works: S.works, blocks: S.blocks, exportedAt: new Date().toISOString() }, null, 2);
+  const blob = new Blob([json], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `blocks_backup_${dateStr(new Date())}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ============================================================
+// PWA: SERVICE WORKER
+// ============================================================
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').then(reg => {
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      nw.addEventListener('statechange', () => {
+        if (nw.state==='installed' && navigator.serviceWorker.controller) {
+          document.getElementById('update-banner').style.display = 'block';
+        }
+      });
+    });
+  }).catch(e => console.warn('SW registration failed', e));
+}
+function reloadApp() {
+  navigator.serviceWorker.getRegistration().then(r => {
+    if (r?.waiting) r.waiting.postMessage({type:'SKIP_WAITING'});
+  });
+  window.location.reload();
+}
+
+// ============================================================
+// INIT
+// ============================================================
+load();
+switchView('calendar');
+</script>
+</body>
+</html>
