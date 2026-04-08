@@ -458,7 +458,115 @@ function renderSidebar() {
 }
 
 // ===== CALENDAR =====
-let dragBlockId = null;
+// ドラッグ状態管理（マウス・タッチ共通）
+let _drag = null; // { type:'block'|'task', id, el, ghost }
+let _lastDropCell = null;
+
+function _cellFromPoint(x, y) {
+  const el = document.elementFromPoint(x, y);
+  return el?.closest('.cal-cell[data-date]') || null;
+}
+
+function _startDrag(type, id, srcEl, clientX, clientY) {
+  _drag = { type, id };
+  srcEl.style.opacity = '0.4';
+  _drag.srcEl = srcEl;
+  // ゴースト要素
+  const ghost = srcEl.cloneNode(true);
+  ghost.style.cssText = `position:fixed;pointer-events:none;z-index:999;opacity:0.85;
+    width:${srcEl.offsetWidth}px;font-size:10px;border-radius:3px;padding:2px 5px;
+    left:${clientX - srcEl.offsetWidth/2}px;top:${clientY - 12}px`;
+  document.body.appendChild(ghost);
+  _drag.ghost = ghost;
+}
+
+function _moveDrag(clientX, clientY) {
+  if (!_drag) return;
+  _drag.ghost.style.left = (clientX - _drag.ghost.offsetWidth/2) + 'px';
+  _drag.ghost.style.top  = (clientY - 12) + 'px';
+  const cell = _cellFromPoint(clientX, clientY);
+  if (cell !== _lastDropCell) {
+    _lastDropCell?.classList.remove('drag-over');
+    cell?.classList.add('drag-over');
+    _lastDropCell = cell;
+  }
+}
+
+function _endDrag(clientX, clientY) {
+  if (!_drag) return;
+  _drag.ghost?.remove();
+  _drag.srcEl.style.opacity = '';
+  _lastDropCell?.classList.remove('drag-over');
+  const cell = _cellFromPoint(clientX, clientY);
+  const targetDate = cell?.dataset.date;
+  if (targetDate) {
+    if (_drag.type === 'block') {
+      const b = S.blocks.find(b => b.id === _drag.id);
+      if (b && b.date !== targetDate) { b.date = targetDate; recalcName(b.workId); save(); renderAll(); }
+    } else if (_drag.type === 'task') {
+      const t = S.tasks.find(t => t.id === _drag.id);
+      if (t && t.date !== targetDate) { t.date = targetDate; save(); renderAll(); }
+    }
+  }
+  _drag = null; _lastDropCell = null;
+}
+
+function _attachDrag(el, type, id) {
+  // マウス: クリック(移動なし)は編集、ドラッグ(移動あり)は移動
+  el.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    let moved = false;
+    const startX = e.clientX, startY = e.clientY;
+    const mm = e2 => {
+      if (!moved && (Math.abs(e2.clientX-startX)>4 || Math.abs(e2.clientY-startY)>4)) {
+        moved = true;
+        _startDrag(type, id, el, e2.clientX, e2.clientY);
+      }
+      if (moved) _moveDrag(e2.clientX, e2.clientY);
+    };
+    const mu = e2 => {
+      document.removeEventListener('mousemove', mm);
+      document.removeEventListener('mouseup', mu);
+      if (moved) {
+        _endDrag(e2.clientX, e2.clientY);
+      } else {
+        // クリック扱い: タスクなら編集
+        if (type === 'task') openEditTask(id, e2);
+      }
+    };
+    document.addEventListener('mousemove', mm);
+    document.addEventListener('mouseup', mu);
+  });
+  // タッチ: 短タップなら編集、ドラッグなら移動
+  let _touchMoved = false;
+  let _touchStartX = 0, _touchStartY = 0;
+  el.addEventListener('touchstart', e => {
+    _touchMoved = false;
+    const t = e.touches[0];
+    _touchStartX = t.clientX; _touchStartY = t.clientY;
+  }, { passive: true });
+  el.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    if (!_touchMoved && (Math.abs(t.clientX-_touchStartX)>6 || Math.abs(t.clientY-_touchStartY)>6)) {
+      _touchMoved = true;
+      _startDrag(type, id, el, t.clientX, t.clientY);
+    }
+    if (_touchMoved) {
+      e.preventDefault();
+      _moveDrag(t.clientX, t.clientY);
+    }
+  }, { passive: false });
+  el.addEventListener('touchend', e => {
+    if (_touchMoved) {
+      const t = e.changedTouches[0];
+      _endDrag(t.clientX, t.clientY);
+    } else {
+      // 短タップ: タスクなら編集
+      if (type === 'task') openEditTask(id, e);
+    }
+  });
+}
 
 function renderCalendar() {
   const el = document.getElementById('calendar-view');
@@ -467,21 +575,18 @@ function renderCalendar() {
   const last = new Date(y, m+1, 0);
   const today = new Date();
 
-  // 月曜始まり: 日=6, 月=0, 火=1...土=5
   const DAYS_MON = ['月','火','水','木','金','土','日'];
-  const DOW_MON = [1,2,3,4,5,6,0]; // 月曜始まりの各列が対応する曜日(0=日)
-  const isWorkColMon = (col) => [1,3,4].includes(col); // 火=col1, 木=col3, 金=col4
+  const isWorkColMon = (col) => [1,3,4].includes(col);
 
   let html = `<div class="cal-header">
     <button class="cal-nav" onclick="calNav(-1)">◂</button>
     <span class="cal-month">${y}年${m+1}月</span>
     <button class="cal-nav" onclick="calNav(1)">▸</button>
     <button class="btn" onclick="calToday()" style="margin-left:8px;font-size:11px">今日</button>
-  </div><div class="cal-grid">
+  </div><div class="cal-grid" id="cal-grid">
     ${DAYS_MON.map((d,i) => `<div class="cal-dow ${isWorkColMon(i)?'work-day':''}">${d}</div>`).join('')}`;
 
-  // 月曜始まりのオフセット（日曜=6, 月曜=0, ...）
-  const startDowRaw = first.getDay(); // 0=日
+  const startDowRaw = first.getDay();
   const startOffset = startDowRaw === 0 ? 6 : startDowRaw - 1;
   for (let i = 0; i < startOffset; i++) html += calCell(new Date(y, m, -startOffset+i+1), true, today);
   for (let d = 1; d <= last.getDate(); d++) html += calCell(new Date(y, m, d), false, today);
@@ -491,23 +596,9 @@ function renderCalendar() {
 
   el.innerHTML = html + '</div>';
 
-  // D&D: dragover / drop on cells
-  el.querySelectorAll('.cal-cell:not(.other-month)').forEach(cell => {
-    cell.addEventListener('dragover', e => { e.preventDefault(); cell.classList.add('drag-over'); });
-    cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
-    cell.addEventListener('drop', e => {
-      e.preventDefault();
-      cell.classList.remove('drag-over');
-      const targetDate = cell.dataset.date;
-      if (!dragBlockId || !targetDate) return;
-      const b = S.blocks.find(b => b.id === dragBlockId);
-      if (b && b.date !== targetDate) {
-        b.date = targetDate;
-        recalcName(b.workId);
-        save(); renderAll();
-      }
-      dragBlockId = null;
-    });
+  // ドラッグハンドラをチップに登録
+  el.querySelectorAll('.chip-draggable').forEach(chip => {
+    _attachDrag(chip, chip.dataset.dragType, chip.dataset.dragId);
   });
 }
 
@@ -528,23 +619,20 @@ function calCell(date, other, today) {
     const w = S.works.find(w => w.id === b.workId);
     if (!w) return;
     const isDone = blockDone(b);
-    const lbl = b.type==='drawing'
-      ? `${b.pageNum}p ${w.title.slice(0,5)}`
-      : (b.title||'タスク').slice(0,10);
-    chips += `<div class="block-chip ${b.type==='drawing'?'drawing':'task'} ${isDone?'done':''}"
-      style="border-left:2px solid ${w.color};cursor:grab"
-      draggable="true"
-      ondragstart="dragBlockId='${b.id}'"
-      ondragend="dragBlockId=null">${lbl}</div>`;
+    const lbl = b.type==='drawing' ? `${b.pageNum}p ${w.title.slice(0,5)}` : (b.title||'タスク').slice(0,10);
+    chips += `<div class="block-chip chip-draggable ${b.type==='drawing'?'drawing':'task'} ${isDone?'done':''}"
+      data-drag-type="block" data-drag-id="${b.id}"
+      style="border-left:2px solid ${w.color};cursor:grab;touch-action:none">${lbl}</div>`;
   });
   // スタンドアロンタスク（日付あり）
   S.tasks.filter(t => t.date === ds).forEach(t => {
     const tagColors = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)?.color).filter(Boolean);
     const chipColor = tagColors.length ? tagColors[0] : '#666';
-    const chipBg   = tagColors.length ? tagColors[0] + '22' : '#66666622';
-    chips += `<div class="block-chip standalone-task ${t.done?'done':''}"
-      style="border-left:2px solid ${chipColor};background:${chipBg};color:${tagColors.length?chipColor:'#aaa'}"
-      onclick="openEditTask('${t.id}',event)">${(t.title||'タスク').slice(0,12)}</div>`;
+    const chipBg    = tagColors.length ? tagColors[0] + '22' : '#66666622';
+    chips += `<div class="block-chip chip-draggable standalone-task ${t.done?'done':''}"
+      data-drag-type="task" data-drag-id="${t.id}"
+      style="border-left:2px solid ${chipColor};background:${chipBg};color:${tagColors.length?chipColor:'#aaa'};cursor:grab;touch-action:none"
+      >${(t.title||'タスク').slice(0,12)}</div>`;
   });
 
   return `<div class="${cls}" data-date="${ds}"><div class="cal-date" onclick="openNewTaskOnDate('${ds}')" style="cursor:pointer;padding:1px 3px;border-radius:3px" title="タスクを追加">${date.getDate()}</div>${chips}</div>`;
