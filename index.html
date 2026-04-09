@@ -14,7 +14,7 @@
 <script>
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyBiKlp44CPkiaxT8_SaenY1cgz5gXr6p_c",
-    authDomain: "thesocks-hub.github.io",  // GitHub PagesのドメインをauthDomainに指定
+    authDomain: "blocks-4c0d8.firebaseapp.com",
     projectId: "blocks-4c0d8",
     storageBucket: "blocks-4c0d8.firebasestorage.app",
     messagingSenderId: "422245046917",
@@ -74,24 +74,34 @@
     };
     window._fbSignIn = async () => {
       const provider = new firebase.auth.GoogleAuthProvider();
-      try { await auth.signInWithRedirect(provider); }
-      catch(e) { console.warn('Sign-in error', e); }
+      try {
+        // まずポップアップを試みる（PC・通常ブラウザ向け）
+        await auth.signInWithPopup(provider);
+      } catch(e) {
+        // ポップアップがブロックされた場合はリダイレクトにフォールバック（PWA・スマホ向け）
+        if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
+          await auth.signInWithRedirect(provider);
+        } else {
+          console.warn('Sign-in error', e);
+        }
+      }
     };
     window._fbSignOut = async () => {
       await auth.signOut();
     };
 
-    // リダイレクト後の結果を明示的に処理してからonAuthStateChangedに任せる
+    // リダイレクト方式で戻ってきた場合の結果を処理
     auth.getRedirectResult().then(result => {
       if (result && result.user) {
         console.log('Redirect login success:', result.user.email);
       }
-    }).catch(e => console.warn('Redirect result error', e));
+    }).catch(e => {
+      if (e.code !== 'auth/no-current-user') console.warn('Redirect result error', e);
+    });
 
-    // 認証状態の変化を監視（リダイレクト結果含め全パターンをカバー）
+    // 認証状態の変化を監視
     let _listenStarted = false;
     auth.onAuthStateChanged(user => {
-      console.log('Auth state changed:', user ? user.email : 'null');
       _updateAuthUI(user);
       if (user) {
         window._fbLoad().then(d => {
