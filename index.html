@@ -10,6 +10,87 @@
 <title>Blocks</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
+<!-- Firebase SDK (設定後に有効化) -->
+<script>
+  // ========================================================
+  // ▼▼▼ Firebaseを使う場合: 以下3ステップ ▼▼▼
+  // 1. 下のfirebaseConfigに自分の設定値を貼り付ける
+  // 2. USE_FIREBASE = true に変更する
+  // 3. sw.jsのCACHE_NAMEを上げてindex.html・sw.jsを両方アップロード
+  // ========================================================
+  const USE_FIREBASE = true; // ← trueにすると同期が有効になる
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBiKlp44CPkiaxT8_SaenY1cgz5gXr6p_c",
+    authDomain: "blocks-4c0d8.firebaseapp.com",
+    projectId: "blocks-4c0d8",
+    storageBucket: "blocks-4c0d8.firebasestorage.app",
+    messagingSenderId: "422245046917",
+    appId: "1:422245046917:web:7e88b80d6a972a59eae7ec"
+  };
+  const FB_DEVICE_ID = 'blocks-main'; // 全端末で同じ文字列にする
+
+  // Firebase未設定時はダミー関数（何もしない）
+  window._fbSave = () => {};
+  window._fbLoad = async () => null;
+  window._startFbListen = () => {};
+
+  if (USE_FIREBASE) {
+    // Firebase SDKを動的ロード（通常scriptとして）
+    const loadScript = (src) => new Promise((res, rej) => {
+      const s = document.createElement('script'); s.src = src;
+      s.onload = res; s.onerror = rej; document.head.appendChild(s);
+    });
+
+    window._fbReady = Promise.all([
+      loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js'),
+      loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js'),
+    ]).then(() => {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      const db  = firebase.firestore();
+      const ref = db.collection('blocks_data').doc(FB_DEVICE_ID);
+
+      window._fbSave = async (data) => {
+        try { await ref.set({ payload: JSON.stringify(data), updatedAt: Date.now() }); }
+        catch(e) { console.warn('Firebase save error', e); }
+      };
+      window._fbLoad = async () => {
+        try {
+          const snap = await ref.get();
+          if (snap.exists) return JSON.parse(snap.data().payload);
+        } catch(e) { console.warn('Firebase load error', e); }
+        return null;
+      };
+      window._startFbListen = () => {
+        ref.onSnapshot(snap => {
+          if (!snap.exists) return;
+          try {
+            const d = JSON.parse(snap.data().payload);
+            if (window._S) {
+              window._S.works  = d.works  || [];
+              window._S.blocks = d.blocks || [];
+              window._S.tasks  = d.tasks  || [];
+              window._S.tags   = d.tags   || [];
+              if (typeof renderAll === 'function') renderAll();
+            }
+          } catch(e) {}
+        });
+      };
+
+      // Firebase読み込み完了後にデータ取得・同期開始
+      window._fbLoad().then(d => {
+        if (d && window._S) {
+          window._S.works  = d.works  || [];
+          window._S.blocks = d.blocks || [];
+          window._S.tasks  = d.tasks  || [];
+          window._S.tags   = d.tags   || [];
+          if (typeof renderAll === 'function') renderAll();
+        }
+        window._startFbListen();
+      });
+    }).catch(e => console.warn('Firebase load failed', e));
+  }
+</script>
+
 <style>
   :root {
     --bg: #0f0f0f;
@@ -201,6 +282,7 @@
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
   .cal-cell.drag-over { background: #2a2820 !important; border-color: var(--accent2) !important; }
+  .cal-scroll-day.drag-over { background: #2a2820 !important; outline: 1px solid var(--accent2); border-radius: 8px; }
   .block-chip.standalone-task { background: #22222a; color: #a0a0c0; cursor: pointer; }
   .block-chip.standalone-task:hover { background: #2a2a38; }
 
@@ -316,8 +398,14 @@ let S = {
 };
 
 // ===== PERSIST =====
+window._S = S; // Firebaseモジュールからアクセスできるよう公開
+
 function save() {
-  try { localStorage.setItem('blocks_v1', JSON.stringify({ works: S.works, blocks: S.blocks, tasks: S.tasks, tags: S.tags })); } catch(e) {}
+  const data = { works: S.works, blocks: S.blocks, tasks: S.tasks, tags: S.tags };
+  // localStorageに即時保存（オフライン対応）
+  try { localStorage.setItem('blocks_v1', JSON.stringify(data)); } catch(e) {}
+  // Firebaseにも非同期保存（設定済みの場合のみ）
+  if (window._fbSave) window._fbSave(data);
 }
 function load() {
   try {
@@ -486,7 +574,8 @@ let _lastDropCell = null;
 
 function _cellFromPoint(x, y) {
   const el = document.elementFromPoint(x, y);
-  return el?.closest('.cal-cell[data-date]') || null;
+  // PCグリッド型 or スマホスクロール型 どちらにも対応
+  return el?.closest('[data-date]') || null;
 }
 
 function _startDrag(type, id, srcEl, clientX, clientY) {
@@ -1380,7 +1469,21 @@ function closeMobileMenu() {
 // ===== SW REGISTRATION =====
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      // 新しいSWが待機状態になったら更新バナーを表示
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            const banner = document.createElement('div');
+            banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#c8b89a;color:#0f0f0f;padding:10px 20px;border-radius:20px;font-size:13px;z-index:9999;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,0.4)';
+            banner.textContent = '🔄 新しいバージョンがあります。タップして更新';
+            banner.onclick = () => { newWorker.postMessage({ type: 'SKIP_WAITING' }); location.reload(); };
+            document.body.appendChild(banner);
+          }
+        });
+      });
+    }).catch(() => {});
   });
 }
 
