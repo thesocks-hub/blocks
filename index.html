@@ -10,15 +10,8 @@
 <title>Blocks</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<!-- Firebase SDK (設定後に有効化) -->
+<!-- Firebase SDK -->
 <script>
-  // ========================================================
-  // ▼▼▼ Firebaseを使う場合: 以下3ステップ ▼▼▼
-  // 1. 下のfirebaseConfigに自分の設定値を貼り付ける
-  // 2. USE_FIREBASE = true に変更する
-  // 3. sw.jsのCACHE_NAMEを上げてindex.html・sw.jsを両方アップロード
-  // ========================================================
-  const USE_FIREBASE = true; // ← trueにすると同期が有効になる
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyBiKlp44CPkiaxT8_SaenY1cgz5gXr6p_c",
     authDomain: "blocks-4c0d8.firebaseapp.com",
@@ -27,67 +20,100 @@
     messagingSenderId: "422245046917",
     appId: "1:422245046917:web:7e88b80d6a972a59eae7ec"
   };
-  const FB_DEVICE_ID = 'blocks-main'; // 全端末で同じ文字列にする
+  const FB_DEVICE_ID = 'blocks-main';
 
-  // Firebase未設定時はダミー関数（何もしない）
   window._fbSave = () => {};
   window._fbLoad = async () => null;
   window._startFbListen = () => {};
+  window._fbSignIn  = async () => {};
+  window._fbSignOut = async () => {};
 
-  if (USE_FIREBASE) {
-    // Firebase SDKを動的ロード（通常scriptとして）
-    const loadScript = (src) => new Promise((res, rej) => {
-      const s = document.createElement('script'); s.src = src;
-      s.onload = res; s.onerror = rej; document.head.appendChild(s);
-    });
+  const loadScript = (src) => new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
 
-    window._fbReady = Promise.all([
-      loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js'),
-      loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js'),
-    ]).then(() => {
-      firebase.initializeApp(FIREBASE_CONFIG);
-      const db  = firebase.firestore();
-      const ref = db.collection('blocks_data').doc(FB_DEVICE_ID);
+  window._fbReady = Promise.all([
+    loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js'),
+    loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js'),
+    loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js'),
+  ]).then(() => {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const auth = firebase.auth();
+    const db   = firebase.firestore();
+    const ref  = db.collection('blocks_data').doc(FB_DEVICE_ID);
 
-      window._fbSave = async (data) => {
-        try { await ref.set({ payload: JSON.stringify(data), updatedAt: Date.now() }); }
-        catch(e) { console.warn('Firebase save error', e); }
-      };
-      window._fbLoad = async () => {
+    window._fbSave = async (data) => {
+      if (!auth.currentUser) return;
+      try { await ref.set({ payload: JSON.stringify(data), updatedAt: Date.now() }); }
+      catch(e) { console.warn('Firebase save error', e); }
+    };
+    window._fbLoad = async () => {
+      if (!auth.currentUser) return null;
+      try {
+        const snap = await ref.get();
+        if (snap.exists) return JSON.parse(snap.data().payload);
+      } catch(e) { console.warn('Firebase load error', e); }
+      return null;
+    };
+    window._startFbListen = () => {
+      ref.onSnapshot(snap => {
+        if (!snap.exists) return;
         try {
-          const snap = await ref.get();
-          if (snap.exists) return JSON.parse(snap.data().payload);
-        } catch(e) { console.warn('Firebase load error', e); }
-        return null;
-      };
-      window._startFbListen = () => {
-        ref.onSnapshot(snap => {
-          if (!snap.exists) return;
-          try {
-            const d = JSON.parse(snap.data().payload);
-            if (window._S) {
-              window._S.works  = d.works  || [];
-              window._S.blocks = d.blocks || [];
-              window._S.tasks  = d.tasks  || [];
-              window._S.tags   = d.tags   || [];
-              if (typeof renderAll === 'function') renderAll();
-            }
-          } catch(e) {}
-        });
-      };
-
-      // Firebase読み込み完了後にデータ取得・同期開始
-      window._fbLoad().then(d => {
-        if (d && window._S) {
-          window._S.works  = d.works  || [];
-          window._S.blocks = d.blocks || [];
-          window._S.tasks  = d.tasks  || [];
-          window._S.tags   = d.tags   || [];
-          if (typeof renderAll === 'function') renderAll();
-        }
-        window._startFbListen();
+          const d = JSON.parse(snap.data().payload);
+          if (window._S) {
+            window._S.works  = d.works  || [];
+            window._S.blocks = d.blocks || [];
+            window._S.tasks  = d.tasks  || [];
+            window._S.tags   = d.tags   || [];
+            if (typeof renderAll === 'function') renderAll();
+          }
+        } catch(e) {}
       });
-    }).catch(e => console.warn('Firebase load failed', e));
+    };
+    window._fbSignIn = async () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      try { await auth.signInWithPopup(provider); }
+      catch(e) { console.warn('Sign-in error', e); }
+    };
+    window._fbSignOut = async () => {
+      await auth.signOut();
+    };
+
+    // 認証状態の変化を監視
+    auth.onAuthStateChanged(user => {
+      _updateAuthUI(user);
+      if (user) {
+        // ログイン済み: データ取得・同期開始
+        window._fbLoad().then(d => {
+          if (d && window._S) {
+            window._S.works  = d.works  || [];
+            window._S.blocks = d.blocks || [];
+            window._S.tasks  = d.tasks  || [];
+            window._S.tags   = d.tags   || [];
+            if (typeof renderAll === 'function') renderAll();
+          }
+          window._startFbListen();
+        });
+      }
+    });
+  }).catch(e => console.warn('Firebase load failed', e));
+
+  // 認証UI更新（Firebase読み込み前後どちらでも呼べる）
+  function _updateAuthUI(user) {
+    const btn = document.getElementById('auth-btn');
+    const info = document.getElementById('auth-info');
+    if (!btn) return;
+    if (user) {
+      if (info) info.textContent = user.displayName || user.email || '';
+      btn.textContent = 'ログアウト';
+      btn.onclick = () => window._fbSignOut();
+    } else {
+      if (info) info.textContent = '';
+      btn.textContent = 'Googleでログイン';
+      btn.onclick = () => window._fbSignIn();
+    }
   }
 </script>
 
@@ -340,6 +366,15 @@
     <div id="work-list-nav"></div>
     <div class="sidebar-footer">
       <button class="btn-add" onclick="openNewWork();closeMobileMenu()">＋ 新しい作品</button>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+        <div id="auth-info" style="font-size:10px;color:var(--text3);margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+        <button id="auth-btn" onclick="window._fbSignIn()"
+          style="width:100%;padding:7px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:var(--radius);font-size:12px;cursor:pointer;font-family:var(--font);transition:all 0.15s"
+          onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--accent)'"
+          onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text2)'">
+          Googleでログイン
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1467,22 +1502,37 @@ function closeMobileMenu() {
 }
 
 // ===== SW REGISTRATION =====
+function _showUpdateBanner(worker) {
+  if (document.getElementById('update-banner')) return; // 二重表示防止
+  const banner = document.createElement('div');
+  banner.id = 'update-banner';
+  banner.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#c8b89a;color:#0f0f0f;padding:11px 22px;border-radius:20px;font-size:13px;z-index:9999;cursor:pointer;box-shadow:0 2px 16px rgba(0,0,0,0.5);white-space:nowrap';
+  banner.textContent = '🔄 新しいバージョンがあります。タップして更新';
+  banner.onclick = () => {
+    worker.postMessage({ type: 'SKIP_WAITING' });
+    navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
+  };
+  document.body.appendChild(banner);
+}
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').then(reg => {
-      // 新しいSWが待機状態になったら更新バナーを表示
+      // パターン1: 登録直後にすでにwaiting中のSWがある（ページ再読み込みケース）
+      if (reg.waiting) { _showUpdateBanner(reg.waiting); }
+
+      // パターン2: インストール中のSWが完了してwaitingになった
       reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            const banner = document.createElement('div');
-            banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#c8b89a;color:#0f0f0f;padding:10px 20px;border-radius:20px;font-size:13px;z-index:9999;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,0.4)';
-            banner.textContent = '🔄 新しいバージョンがあります。タップして更新';
-            banner.onclick = () => { newWorker.postMessage({ type: 'SKIP_WAITING' }); location.reload(); };
-            document.body.appendChild(banner);
+        const w = reg.installing;
+        w.addEventListener('statechange', () => {
+          if (w.state === 'installed' && navigator.serviceWorker.controller) {
+            _showUpdateBanner(w);
           }
         });
       });
+
+      // 定期チェック: 1時間ごとに新バージョンを確認
+      setInterval(() => reg.update(), 60 * 60 * 1000);
     }).catch(() => {});
   });
 }
