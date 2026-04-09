@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blocks-v14'; // ← 更新のたびにここの数字を上げる
+const CACHE_NAME = 'blocks-v15'; // ← 更新のたびにここの数字を上げる
 const ASSETS = [
   './',
   './index.html',
@@ -19,14 +19,23 @@ self.addEventListener('activate', e => {
   );
 });
 
-// skipWaiting メッセージ対応（index.htmlの更新バナーから呼ばれる）
+// skipWaiting メッセージ対応
 self.addEventListener('message', e => {
   if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('fetch', e => {
-  // Firebase / 外部リクエストはキャッシュしない
-  if (!e.request.url.startsWith(self.location.origin)) return;
+  const url = e.request.url;
+
+  // 以下はキャッシュせずそのままネットワークへ
+  // - 外部ドメイン全般
+  // - Firebase Auth関連（リダイレクトログインに必須）
+  if (
+    !url.startsWith(self.location.origin) ||
+    url.includes('/__/auth/') ||
+    url.includes('firebaseapp.com') ||
+    url.includes('googleapis.com')
+  ) return;
 
   e.respondWith(
     caches.match(e.request).then(cached => {
@@ -37,7 +46,6 @@ self.addEventListener('fetch', e => {
         }
         return res;
       });
-      // キャッシュがあればまず返し、裏でネットワーク更新（stale-while-revalidate）
       return cached || fetchPromise;
     })
   );

@@ -74,7 +74,6 @@
     };
     window._fbSignIn = async () => {
       const provider = new firebase.auth.GoogleAuthProvider();
-      // リダイレクト方式（PWA・スマホで確実に動く）
       try { await auth.signInWithRedirect(provider); }
       catch(e) { console.warn('Sign-in error', e); }
     };
@@ -82,15 +81,19 @@
       await auth.signOut();
     };
 
-    // リダイレクト後の結果を受け取る（ページ再読み込み後に実行される）
-    auth.getRedirectResult().catch(e => console.warn('Redirect result error', e));
+    // リダイレクト後の結果を明示的に処理してからonAuthStateChangedに任せる
+    auth.getRedirectResult().then(result => {
+      if (result && result.user) {
+        console.log('Redirect login success:', result.user.email);
+      }
+    }).catch(e => console.warn('Redirect result error', e));
 
-    // 認証状態の変化を監視
+    // 認証状態の変化を監視（リダイレクト結果含め全パターンをカバー）
     let _listenStarted = false;
     auth.onAuthStateChanged(user => {
+      console.log('Auth state changed:', user ? user.email : 'null');
       _updateAuthUI(user);
       if (user) {
-        // ログイン済み: データ取得・同期開始（重複防止）
         window._fbLoad().then(d => {
           if (d && window._S) {
             window._S.works  = d.works  || [];
