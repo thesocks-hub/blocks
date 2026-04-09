@@ -74,18 +74,23 @@
     };
     window._fbSignIn = async () => {
       const provider = new firebase.auth.GoogleAuthProvider();
-      try { await auth.signInWithPopup(provider); }
+      // リダイレクト方式（PWA・スマホで確実に動く）
+      try { await auth.signInWithRedirect(provider); }
       catch(e) { console.warn('Sign-in error', e); }
     };
     window._fbSignOut = async () => {
       await auth.signOut();
     };
 
+    // リダイレクト後の結果を受け取る（ページ再読み込み後に実行される）
+    auth.getRedirectResult().catch(e => console.warn('Redirect result error', e));
+
     // 認証状態の変化を監視
+    let _listenStarted = false;
     auth.onAuthStateChanged(user => {
       _updateAuthUI(user);
       if (user) {
-        // ログイン済み: データ取得・同期開始
+        // ログイン済み: データ取得・同期開始（重複防止）
         window._fbLoad().then(d => {
           if (d && window._S) {
             window._S.works  = d.works  || [];
@@ -94,7 +99,7 @@
             window._S.tags   = d.tags   || [];
             if (typeof renderAll === 'function') renderAll();
           }
-          window._startFbListen();
+          if (!_listenStarted) { _listenStarted = true; window._startFbListen(); }
         });
       }
     });
