@@ -168,18 +168,21 @@
     #topbar { padding-left: 12px; }
     #menu-btn { display: flex; }
     #content { padding: 8px; }
-    /* カレンダー: セルを小さく・チップを1行に */
-    .cal-grid { gap: 1px; }
-    .cal-cell { min-height: 64px; padding: 3px; }
-    .cal-date { font-size: 10px; margin-bottom: 2px; }
-    .block-chip { font-size: 9px; padding: 1px 3px; margin-bottom: 1px; }
-    .cal-month { font-size: 16px; }
-    /* タスクカード: パディング調整 */
+    /* モバイル: スクロールカレンダー */
+    .cal-scroll-list { display: flex; flex-direction: column; gap: 2px; }
+    .cal-scroll-day { display: flex; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); align-items: flex-start; }
+    .cal-scroll-day.today-row { background: #1e1c18; border-radius: 8px; border-bottom: none; margin-bottom: 2px; }
+    .cal-scroll-dateblock { width: 40px; flex-shrink: 0; text-align: center; padding-top: 2px; }
+    .cal-scroll-dow { font-size: 10px; color: var(--text3); }
+    .cal-scroll-dow.work-dow { color: var(--accent2); }
+    .cal-scroll-datenum { font-size: 22px; font-weight: 600; color: var(--text2); line-height: 1; }
+    .cal-scroll-datenum.today-num { color: var(--accent); }
+    .cal-scroll-chips { flex: 1; display: flex; flex-direction: column; gap: 4px; min-height: 28px; }
+    .cal-scroll-empty { font-size: 11px; color: var(--text3); padding-top: 6px; }
+    .cal-scroll-chip { font-size: 12px; padding: 5px 10px; border-radius: 6px; line-height: 1.3; cursor: grab; touch-action: none; }
+    /* タスクカード */
     .task-card { padding: 10px 10px; }
     .task-name { font-size: 13px; }
-    /* 週ビュー表示時 */
-    .cal-grid.week-view { grid-template-columns: repeat(7,1fr); }
-    .cal-grid.week-view .cal-cell { min-height: 120px; }
     /* モーダル全画面 */
     #modal { max-height: 92vh; border-radius: 12px 12px 0 0; position: fixed; bottom: 0; left: 0; right: 0; max-width: 100%; margin: 0; }
     #modal-overlay { align-items: flex-end; padding: 0; }
@@ -594,6 +597,9 @@ function _attachDrag(el, type, id) {
 
 function renderCalendar() {
   const el = document.getElementById('calendar-view');
+  const isMobile = window.innerWidth <= 700;
+  if (isMobile) { renderCalendarScroll(el); return; }
+
   const y = S.calYear, m = S.calMonth;
   const first = new Date(y, m, 1);
   const last = new Date(y, m+1, 0);
@@ -620,7 +626,95 @@ function renderCalendar() {
 
   el.innerHTML = html + '</div>';
 
-  // ドラッグハンドラをチップに登録
+  el.querySelectorAll('.chip-draggable').forEach(chip => {
+    _attachDrag(chip, chip.dataset.dragType, chip.dataset.dragId);
+  });
+}
+
+function renderCalendarScroll(el) {
+  const y = S.calYear, m = S.calMonth;
+  const last = new Date(y, m+1, 0);
+  const today = new Date();
+  const todayStr = dateStr(today);
+
+  let html = `<div class="cal-header" style="margin-bottom:12px">
+    <button class="cal-nav" onclick="calNav(-1)">◂</button>
+    <span class="cal-month" style="font-size:17px">${y}年${m+1}月</span>
+    <button class="cal-nav" onclick="calNav(1)">▸</button>
+    <button class="btn" onclick="calToday()" style="margin-left:8px;font-size:11px">今日</button>
+  </div><div class="cal-scroll-list" id="cal-scroll-list">`;
+
+  for (let d = 1; d <= last.getDate(); d++) {
+    const date = new Date(y, m, d);
+    const ds = dateStr(date);
+    const dow = date.getDay();
+    const dowLabel = DAYS_JP[dow];
+    const isToday = ds === todayStr;
+    const isWorkDay = DRAW_DAYS.includes(dow);
+
+    let chips = '';
+
+    // 締め切り・ネーム締め切り
+    S.works.forEach(w => {
+      if (w.nameDeadline === ds) chips += `<div class="cal-scroll-chip" style="background:#3a1e1e;color:#e07070;border-left:3px solid #e07070">✎ネーム〆 ${w.title.slice(0,12)}</div>`;
+      if (w.deadline === ds) chips += `<div class="cal-scroll-chip" style="background:#3a2a1e;color:#d4915a;border-left:3px solid #d4915a">⚑〆 ${w.title.slice(0,12)}</div>`;
+    });
+
+    // ブロック
+    S.blocks.filter(b => b.date === ds).forEach(b => {
+      const w = S.works.find(w => w.id === b.workId);
+      if (!w) return;
+      const isDone = blockDone(b);
+      const lbl = b.type === 'drawing' ? `${b.pageNum}p ${w.title.slice(0,8)}` : (b.title||'タスク').slice(0,15);
+      chips += `<div class="cal-scroll-chip chip-draggable ${isDone?'done':''}"
+        data-drag-type="block" data-drag-id="${b.id}"
+        style="background:${w.color}22;color:${w.color};border-left:3px solid ${w.color};${isDone?'opacity:0.4;text-decoration:line-through':''}">${lbl}</div>`;
+    });
+
+    // スタンドアロンタスク
+    S.tasks.filter(t => t.date === ds).forEach(t => {
+      const tagColors = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)?.color).filter(Boolean);
+      const c = tagColors.length ? tagColors[0] : '#888';
+      chips += `<div class="cal-scroll-chip chip-draggable ${t.done?'done':''}"
+        data-drag-type="task" data-drag-id="${t.id}"
+        style="background:${c}22;color:${c};border-left:3px solid ${c};${t.done?'opacity:0.4;text-decoration:line-through':''}"
+        >${(t.title||'タスク').slice(0,18)}</div>`;
+    });
+
+    // サブタスク
+    S.tasks.forEach(t => {
+      (t.subTasks||[]).forEach((s, i) => {
+        if (s.date !== ds) return;
+        const tagColors = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)?.color).filter(Boolean);
+        const c = tagColors.length ? tagColors[0] : '#666';
+        chips += `<div class="cal-scroll-chip chip-draggable ${s.done?'done':''}"
+          data-drag-type="subtask" data-drag-id="${t.id}::${i}"
+          style="background:${c}11;color:${c}cc;border-left:3px solid ${c}66;${s.done?'opacity:0.4;text-decoration:line-through':''}"
+          onclick="openEditTask('${t.id}',event)">↳ ${(s.title||'').slice(0,16)}</div>`;
+      });
+    });
+
+    if (!chips) chips = `<div class="cal-scroll-empty" onclick="openNewTaskOnDate('${ds}')" style="cursor:pointer">＋</div>`;
+
+    html += `<div class="cal-scroll-day${isToday?' today-row':''}" data-date="${ds}">
+      <div class="cal-scroll-dateblock" onclick="openNewTaskOnDate('${ds}')" style="cursor:pointer">
+        <div class="cal-scroll-dow${isWorkDay?' work-dow':''}">${dowLabel}</div>
+        <div class="cal-scroll-datenum${isToday?' today-num':''}">${d}</div>
+      </div>
+      <div class="cal-scroll-chips">${chips}</div>
+    </div>`;
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
+
+  // 今日にスクロール
+  setTimeout(() => {
+    const todayEl = el.querySelector('.today-row');
+    if (todayEl) todayEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 50);
+
+  // ドラッグ登録
   el.querySelectorAll('.chip-draggable').forEach(chip => {
     _attachDrag(chip, chip.dataset.dragType, chip.dataset.dragId);
   });
@@ -1293,6 +1387,13 @@ if ('serviceWorker' in navigator) {
 // ===== INIT =====
 load();
 renderAll();
+
+// リサイズ時にカレンダー表示を切り替え
+let _resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => { if (S.view === 'calendar') renderCalendar(); }, 150);
+});
 </script>
 </body>
 </html>
