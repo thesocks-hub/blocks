@@ -75,14 +75,16 @@
     window._fbSignIn = async () => {
       const provider = new firebase.auth.GoogleAuthProvider();
       try {
-        // まずポップアップを試みる（PC・通常ブラウザ向け）
         await auth.signInWithPopup(provider);
       } catch(e) {
-        // ポップアップがブロックされた場合はリダイレクトにフォールバック（PWA・スマホ向け）
         if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
-          await auth.signInWithRedirect(provider);
-        } else {
-          console.warn('Sign-in error', e);
+          // PWA/スマホではポップアップが使えないためリダイレクト方式へ
+          // リダイレクト後はFirebaseが blocks-4c0d8.firebaseapp.com 経由で
+          // 元のページ(https://thesocks-hub.github.io/blocks/)に戻す
+          try { await auth.signInWithRedirect(provider); }
+          catch(e2) { console.warn('Redirect sign-in error', e2); }
+        } else if (e.code !== 'auth/popup-closed-by-user') {
+          console.warn('Sign-in error', e.code, e);
         }
       }
     };
@@ -1510,8 +1512,9 @@ function importData(event) {
     try {
       const d = JSON.parse(e.target.result);
       if (!d.works || !d.blocks) throw new Error('invalid');
-      if (!confirm(`${d.works.length}件の作品をインポートします。現在のデータは上書きされます。`)) return;
+      if (!confirm(`${d.works.length}件の作品、${(d.tasks||[]).length}件のタスクをインポートします。現在のデータは上書きされます。`)) return;
       S.works = d.works; S.blocks = d.blocks;
+      S.tasks = d.tasks || []; S.tags = d.tags || [];
       save(); renderAll();
       alert('インポートが完了しました');
     } catch { alert('ファイルの読み込みに失敗しました'); }
@@ -1522,7 +1525,7 @@ function importData(event) {
 
 function confirmClear() {
   if (!confirm('全データを削除します。この操作は取り消せません。')) return;
-  S.works = []; S.blocks = [];
+  S.works = []; S.blocks = []; S.tasks = []; S.tags = [];
   save(); switchView('calendar');
 }
 
