@@ -1,4 +1,4 @@
-const CACHE_NAME = 'blocks-v15'; // ← 更新のたびにここの数字を上げる
+const CACHE_NAME = 'blocks-v16'; // ← 更新のたびにここの数字を上げる
 const ASSETS = [
   './',
   './index.html',

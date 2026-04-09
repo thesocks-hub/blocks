@@ -14,7 +14,7 @@
 <script>
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyBiKlp44CPkiaxT8_SaenY1cgz5gXr6p_c",
-    authDomain: "blocks-4c0d8.firebaseapp.com",
+    authDomain: "thesocks-hub.github.io",  // GitHub PagesのドメインをauthDomainに指定
     projectId: "blocks-4c0d8",
     storageBucket: "blocks-4c0d8.firebasestorage.app",
     messagingSenderId: "422245046917",
@@ -1535,7 +1535,13 @@ function _showUpdateBanner(worker) {
   banner.textContent = '🔄 新しいバージョンがあります。タップして更新';
   banner.onclick = () => {
     worker.postMessage({ type: 'SKIP_WAITING' });
-    navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
+    // controllerchangeを待って確実にリロード
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!reloading) { reloading = true; location.reload(); }
+    });
+    // 3秒待ってもcontrollerchangeが来ない場合は強制リロード
+    setTimeout(() => { if (!reloading) { reloading = true; location.reload(); } }, 3000);
   };
   document.body.appendChild(banner);
 }
