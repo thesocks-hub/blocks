@@ -167,7 +167,26 @@
     #mobile-overlay.open { display: block; }
     #topbar { padding-left: 12px; }
     #menu-btn { display: flex; }
-    #content { padding: 12px; }
+    #content { padding: 8px; }
+    /* カレンダー: セルを小さく・チップを1行に */
+    .cal-grid { gap: 1px; }
+    .cal-cell { min-height: 64px; padding: 3px; }
+    .cal-date { font-size: 10px; margin-bottom: 2px; }
+    .block-chip { font-size: 9px; padding: 1px 3px; margin-bottom: 1px; }
+    .cal-month { font-size: 16px; }
+    /* タスクカード: パディング調整 */
+    .task-card { padding: 10px 10px; }
+    .task-name { font-size: 13px; }
+    /* 週ビュー表示時 */
+    .cal-grid.week-view { grid-template-columns: repeat(7,1fr); }
+    .cal-grid.week-view .cal-cell { min-height: 120px; }
+    /* モーダル全画面 */
+    #modal { max-height: 92vh; border-radius: 12px 12px 0 0; position: fixed; bottom: 0; left: 0; right: 0; max-width: 100%; margin: 0; }
+    #modal-overlay { align-items: flex-end; padding: 0; }
+    .modal-actions { padding-bottom: env(safe-area-inset-bottom); }
+    /* blocks table スクロール */
+    .blocks-table { font-size: 12px; }
+    .blocks-table td { padding: 6px 6px; }
   }
   @media (min-width: 701px) {
     #menu-btn { display: none; }
@@ -506,6 +525,11 @@ function _endDrag(clientX, clientY) {
     } else if (_drag.type === 'task') {
       const t = S.tasks.find(t => t.id === _drag.id);
       if (t && t.date !== targetDate) { t.date = targetDate; save(); renderAll(); }
+    } else if (_drag.type === 'subtask') {
+      const [taskId, idxStr] = _drag.id.split('::');
+      const t = S.tasks.find(t => t.id === taskId);
+      const s = t?.subTasks?.[parseInt(idxStr)];
+      if (s && s.date !== targetDate) { s.date = targetDate; save(); renderAll(); }
     }
   }
   _drag = null; _lastDropCell = null;
@@ -633,6 +657,19 @@ function calCell(date, other, today) {
       data-drag-type="task" data-drag-id="${t.id}"
       style="border-left:2px solid ${chipColor};background:${chipBg};color:${tagColors.length?chipColor:'#aaa'};cursor:grab;touch-action:none"
       >${(t.title||'タスク').slice(0,12)}</div>`;
+  });
+
+  // 日付ありサブタスクもカレンダーに表示
+  S.tasks.forEach(t => {
+    (t.subTasks||[]).forEach((s,i) => {
+      if (s.date !== ds) return;
+      const tagColors = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)?.color).filter(Boolean);
+      const chipColor = tagColors.length ? tagColors[0] : '#666';
+      chips += `<div class="block-chip chip-draggable standalone-task ${s.done?'done':''}"
+        data-drag-type="subtask" data-drag-id="${t.id}::${i}"
+        style="border-left:2px solid ${chipColor}88;background:${chipColor}11;color:${tagColors.length?chipColor+'cc':'#888'};cursor:grab;touch-action:none"
+        onclick="openEditTask('${t.id}',event)">↳ ${(s.title||'').slice(0,10)}</div>`;
+    });
   });
 
   return `<div class="${cls}" data-date="${ds}"><div class="cal-date" onclick="openNewTaskOnDate('${ds}')" style="cursor:pointer;padding:1px 3px;border-radius:3px" title="タスクを追加">${date.getDate()}</div>${chips}</div>`;
@@ -810,12 +847,27 @@ function renderTasks() {
 }
 
 function renderTaskCard(t) {
-  const tagHtml = t.tagIds.map(id => {
+  const tagHtml = (t.tagIds||[]).map(id => {
     const g = S.tags.find(g => g.id === id);
     return g ? `<span class="task-tag" style="background:${g.color}22;color:${g.color}">${g.name}</span>` : '';
   }).join('');
   const dateStr2 = t.date ? `${t.date}${t.time ? ' ' + t.time : ''}` : '';
   const chkSvg = `<svg width="10" height="10" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2"/></svg>`;
+  // サブタスク
+  const subs = t.subTasks||[];
+  const subDone = subs.filter(s=>s.done).length;
+  const subHtml = subs.length ? `
+    <div style="margin-top:6px;padding-left:2px">
+      ${subs.map((s,i) => `<div style="display:flex;align-items:center;gap:5px;padding:3px 0">
+        <div style="width:13px;height:13px;border:1px solid var(--border);border-radius:2px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;background:${s.done?'var(--success)':'transparent'};border-color:${s.done?'var(--success)':'var(--border)'}"
+          onclick="toggleSubTaskFromList('${t.id}',${i})">
+          ${s.done?`<svg width="8" height="8" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2"/></svg>`:''}
+        </div>
+        <span style="font-size:11px;${s.done?'opacity:0.4;text-decoration:line-through':''}">${s.title}</span>
+        ${s.date?`<span style="font-size:10px;color:var(--text3);margin-left:auto">${s.date}</span>`:''}
+      </div>`).join('')}
+      <div style="font-size:10px;color:var(--text3);margin-top:3px">${subDone}/${subs.length} 完了</div>
+    </div>` : '';
   return `<div class="task-card ${t.done?'done-card':''}">
     <div class="task-check ${t.done?'checked':''}" onclick="toggleTaskDone('${t.id}')">${t.done?chkSvg:''}</div>
     <div class="task-body">
@@ -825,9 +877,17 @@ function renderTaskCard(t) {
       </div>
       ${tagHtml ? `<div class="task-tags">${tagHtml}</div>` : ''}
       ${t.memo ? `<div class="task-memo">${t.memo}</div>` : ''}
+      ${subHtml}
     </div>
     <button class="task-edit-btn" onclick="openEditTask('${t.id}',event)">編集</button>
   </div>`;
+}
+
+function toggleSubTaskFromList(taskId, idx) {
+  const t = S.tasks.find(t => t.id === taskId);
+  if (!t || !t.subTasks) return;
+  t.subTasks[idx].done = !t.subTasks[idx].done;
+  save(); renderAll();
 }
 
 function toggleTaskDone(taskId) {
@@ -1042,18 +1102,85 @@ function openNewTaskOnDate(ds) {
   openNewTask(ds);
 }
 
+function subTasksHTML(t) {
+  const subs = (t.subTasks||[]);
+  const chkSvg = `<svg width="9" height="9" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2"/></svg>`;
+  const rows = subs.map((s,i) => `
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <div style="width:16px;height:16px;border:1.5px solid ${s.done?'var(--success)':'var(--border)'};border-radius:3px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;background:${s.done?'var(--success)':'transparent'}"
+        onclick="toggleSubTask('${t.id}',${i})">${s.done?chkSvg:''}</div>
+      <span style="flex:1;font-size:12px;${s.done?'opacity:0.45;text-decoration:line-through':''}">${s.title}</span>
+      <input type="date" value="${s.date||''}" onchange="updateSubTaskDate('${t.id}',${i},this.value)"
+        style="width:120px;padding:2px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text3);border-radius:4px;font-size:10px;font-family:var(--font);outline:none;-webkit-appearance:none">
+      <button onclick="deleteSubTask('${t.id}',${i})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0 2px;line-height:1">×</button>
+    </div>`).join('');
+  return `<div id="subtask-list">${rows}</div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <input id="f-sub-title" placeholder="サブタスク名" style="flex:1;padding:6px 8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:12px;font-family:var(--font);outline:none">
+      <input id="f-sub-date" type="date" style="width:130px;padding:6px 8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:12px;font-family:var(--font);outline:none;-webkit-appearance:none">
+      <button class="btn" style="padding:4px 10px;flex-shrink:0" onclick="addSubTask('${t.id}')">追加</button>
+    </div>`;
+}
+
+function toggleSubTask(taskId, idx) {
+  const t = S.tasks.find(t => t.id === taskId);
+  if (!t || !t.subTasks) return;
+  t.subTasks[idx].done = !t.subTasks[idx].done;
+  save(); renderAll();
+  const wrap = document.getElementById('f-subtask-wrap');
+  if (wrap) wrap.innerHTML = subTasksHTML(t);
+}
+
+function updateSubTaskDate(taskId, idx, value) {
+  const t = S.tasks.find(t => t.id === taskId);
+  if (!t || !t.subTasks) return;
+  t.subTasks[idx].date = value || null;
+  save(); renderAll();
+}
+
+
+
+function deleteSubTask(taskId, idx) {
+  const t = S.tasks.find(t => t.id === taskId);
+  if (!t || !t.subTasks) return;
+  t.subTasks.splice(idx, 1);
+  save(); renderAll();
+  // モーダルのサブタスク欄だけ更新
+  const wrap = document.getElementById('f-subtask-wrap');
+  if (wrap) wrap.innerHTML = subTasksHTML(t);
+}
+
+function addSubTask(taskId) {
+  const t = S.tasks.find(t => t.id === taskId);
+  if (!t) return;
+  const title = document.getElementById('f-sub-title')?.value.trim();
+  if (!title) return;
+  const date = document.getElementById('f-sub-date')?.value || null;
+  if (!t.subTasks) t.subTasks = [];
+  t.subTasks.push({ id: uid(), title, date, done: false });
+  save(); renderAll();
+  const wrap = document.getElementById('f-subtask-wrap');
+  if (wrap) wrap.innerHTML = subTasksHTML(t);
+}
+
 function openEditTask(taskId, e) {
   e?.stopPropagation();
   const t = S.tasks.find(t => t.id === taskId);
   if (!t) return;
   openModal('タスクを編集', `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <input type="checkbox" id="f-task-done" ${t.done?'checked':''} style="width:16px;height:16px;accent-color:var(--success);cursor:pointer">
+      <label for="f-task-done" style="font-size:13px;cursor:pointer;color:var(--text2)">完了</label>
+    </div>
     <div class="form-row"><label>タイトル</label><input id="f-task-title" value="${t.title||''}" /></div>
     <div class="form-row"><label>日付</label><input id="f-task-date" type="date" value="${t.date||''}" /></div>
     <div class="form-row"><label>時間</label><input id="f-task-time" type="time" value="${t.time||''}" /></div>
     <div class="form-row"><label>タグ</label><div id="f-tag-checks">${tagCheckboxesHTML(t.tagIds||[])}</div></div>
-    <div class="form-row"><label>メモ</label><textarea id="f-task-memo" rows="3" style="width:100%;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:13px;font-family:var(--font);resize:vertical;outline:none">${t.memo||''}</textarea></div>
+    <div class="form-row"><label>メモ</label><textarea id="f-task-memo" rows="2" style="width:100%;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:13px;font-family:var(--font);resize:vertical;outline:none">${t.memo||''}</textarea></div>
+    <div class="form-row"><label>サブタスク</label><div id="f-subtask-wrap">${subTasksHTML(t)}</div></div>
     <div style="margin-top:8px"><button class="btn danger" style="width:100%" onclick="deleteTask('${t.id}')">このタスクを削除</button></div>
   `, '保存', () => {
+    t.done  = document.getElementById('f-task-done').checked;
     t.title = document.getElementById('f-task-title').value.trim();
     t.date  = document.getElementById('f-task-date').value || null;
     t.time  = document.getElementById('f-task-time').value || null;
@@ -1115,7 +1242,7 @@ function deleteTag(tagId) {
 
 // ===== DATA IO =====
 function exportData() {
-  const json = JSON.stringify({ works: S.works, blocks: S.blocks, exportedAt: new Date().toISOString() }, null, 2);
+  const json = JSON.stringify({ works: S.works, blocks: S.blocks, tasks: S.tasks, tags: S.tags, exportedAt: new Date().toISOString() }, null, 2);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
   a.download = `blocks_backup_${dateStr(new Date())}.json`;
