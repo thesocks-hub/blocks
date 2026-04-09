@@ -467,6 +467,7 @@ let S = {
   calYear: new Date().getFullYear(),
   calMonth: new Date().getMonth(),
   selectedWork: null,
+  calScrollInitialized: false,
 };
 
 // ===== PERSIST =====
@@ -623,7 +624,7 @@ function renderTopbar() {
   } else if (S.view === 'tasks') {
     act.innerHTML = `<button class="btn" onclick="openTagManager()">タグ管理</button><button class="btn primary" onclick="openNewTask()">＋ タスク追加</button>`;
   } else if (S.view === 'calendar') {
-    act.innerHTML = `<button class="btn" onclick="switchView('settings')" title="設定">⚙</button>`;
+    act.innerHTML = `<button class="btn" onclick="calToday()" style="font-size:12px">今日</button><button class="btn" onclick="switchView('settings')" title="設定" style="margin-left:4px">⚙</button>`;
   } else {
     act.innerHTML = '';
   }
@@ -726,33 +727,59 @@ function _attachDrag(el, type, id) {
     document.addEventListener('mousemove', mm);
     document.addEventListener('mouseup', mu);
   });
-  // タッチ: 短タップなら編集、ドラッグなら移動
-  let _touchMoved = false;
+  // タッチ: ロングタップ(500ms)でD&D開始、短タップは編集
+  let _touchTimer = null;
+  let _touchDragging = false;
   let _touchStartX = 0, _touchStartY = 0;
+  let _touchCancelled = false;
   el.addEventListener('touchstart', e => {
-    _touchMoved = false;
+    _touchDragging = false;
+    _touchCancelled = false;
     const t = e.touches[0];
     _touchStartX = t.clientX; _touchStartY = t.clientY;
+    _touchTimer = setTimeout(() => {
+      if (!_touchCancelled) {
+        _touchDragging = true;
+        _startDrag(type, id, el, _touchStartX, _touchStartY);
+        // 振動フィードバック（対応端末のみ）
+        if (navigator.vibrate) navigator.vibrate(40);
+      }
+    }, 500);
   }, { passive: true });
   el.addEventListener('touchmove', e => {
     const t = e.touches[0];
-    if (!_touchMoved && (Math.abs(t.clientX-_touchStartX)>6 || Math.abs(t.clientY-_touchStartY)>6)) {
-      _touchMoved = true;
-      _startDrag(type, id, el, t.clientX, t.clientY);
+    const dx = Math.abs(t.clientX - _touchStartX);
+    const dy = Math.abs(t.clientY - _touchStartY);
+    // 少し動いたらロングタップキャンセル（スクロール意図と判断）
+    if (!_touchDragging && (dx > 8 || dy > 8)) {
+      clearTimeout(_touchTimer);
+      _touchCancelled = true;
     }
-    if (_touchMoved) {
+    if (_touchDragging) {
       e.preventDefault();
       _moveDrag(t.clientX, t.clientY);
     }
   }, { passive: false });
   el.addEventListener('touchend', e => {
-    if (_touchMoved) {
+    clearTimeout(_touchTimer);
+    if (_touchDragging) {
       const t = e.changedTouches[0];
       _endDrag(t.clientX, t.clientY);
-    } else {
+    } else if (!_touchCancelled) {
       // 短タップ: タスクなら編集
       if (type === 'task') openEditTask(id, e);
     }
+    _touchDragging = false;
+  });
+  el.addEventListener('touchcancel', () => {
+    clearTimeout(_touchTimer);
+    if (_touchDragging) {
+      _drag?.ghost?.remove();
+      if (_drag?.srcEl) _drag.srcEl.style.opacity = '';
+      _lastDropCell?.classList.remove('drag-over');
+      _drag = null; _lastDropCell = null;
+    }
+    _touchDragging = false; _touchCancelled = true;
   });
 }
 
@@ -773,7 +800,6 @@ function renderCalendar() {
     <button class="cal-nav" onclick="calNav(-1)">◂</button>
     <span class="cal-month">${y}年${m+1}月</span>
     <button class="cal-nav" onclick="calNav(1)">▸</button>
-    <button class="btn" onclick="calToday()" style="margin-left:8px;font-size:11px">今日</button>
   </div><div class="cal-grid" id="cal-grid">
     ${DAYS_MON.map((d,i) => `<div class="cal-dow ${isWorkColMon(i)?'work-day':''}">${d}</div>`).join('')}`;
 
@@ -802,7 +828,6 @@ function renderCalendarScroll(el) {
     <button class="cal-nav" onclick="calNav(-1)">◂</button>
     <span class="cal-month" style="font-size:17px">${y}年${m+1}月</span>
     <button class="cal-nav" onclick="calNav(1)">▸</button>
-    <button class="btn" onclick="calToday()" style="margin-left:8px;font-size:11px">今日</button>
   </div><div class="cal-scroll-list" id="cal-scroll-list">`;
 
   for (let d = 1; d <= last.getDate(); d++) {
@@ -869,11 +894,14 @@ function renderCalendarScroll(el) {
   html += '</div>';
   el.innerHTML = html;
 
-  // 今日にスクロール
-  setTimeout(() => {
-    const todayEl = el.querySelector('.today-row');
-    if (todayEl) todayEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, 50);
+  // 今日にスクロール（初回のみ）
+  if (!S.calScrollInitialized) {
+    S.calScrollInitialized = true;
+    setTimeout(() => {
+      const todayEl = el.querySelector('.today-row');
+      if (todayEl) todayEl.scrollIntoView({ behavior: 'auto', block: 'start' });
+    }, 50);
+  }
 
   // ドラッグ登録
   el.querySelectorAll('.chip-draggable').forEach(chip => {
@@ -934,10 +962,13 @@ function calNav(d) {
   S.calMonth += d;
   if (S.calMonth > 11) { S.calMonth = 0; S.calYear++; }
   if (S.calMonth < 0) { S.calMonth = 11; S.calYear--; }
+  S.calScrollInitialized = false; // 月移動時は先頭にスクロール
   renderCalendar();
 }
 function calToday() {
-  const t = new Date(); S.calYear = t.getFullYear(); S.calMonth = t.getMonth(); renderCalendar();
+  const t = new Date(); S.calYear = t.getFullYear(); S.calMonth = t.getMonth();
+  S.calScrollInitialized = false; // 「今日」ボタンは今日へスクロール
+  renderCalendar();
 }
 
 // ===== WORKS LIST =====
