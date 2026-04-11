@@ -509,8 +509,8 @@ function nextWeekday(from, dow) { const d = new Date(from); while(d.getDay()!==d
 function prevWeekday(from, dow) { const d = new Date(from); while(d.getDay()!==dow) d.setDate(d.getDate()-1); return d; }
 function daysLeft(ds) { return Math.ceil((parseDate(ds) - new Date()) / 86400000); }
 
-function newWork(title, pages, deadline, color) {
-  return { id: uid(), title, pages, deadline, color, nameDeadline: null, nameDone: false, nyukoDone: false };
+function newWork(title, pages, deadline, color, workType) {
+  return { id: uid(), title, pages, deadline, color, workType: workType||'comic', memo: '', nameDeadline: null, nameDone: false, nyukoDone: false, workTasks: [] };
 }
 
 // ===== CORE LOGIC =====
@@ -562,23 +562,34 @@ function blockDone(b) {
 
 function getProgress(workId) {
   const work = S.works.find(w => w.id === workId);
-  const bs = S.blocks.filter(b => b.workId === workId && b.type === 'drawing');
-  if (!bs.length) return { pct: 0, status: 'pending', done: 0, total: 0 };
-  const done = bs.filter(b => blockDone(b)).length;
-  const total = bs.length;
-  // 総チェック数 / (ブロック数×3) でプログレス
-  const totalChecks = bs.reduce((s, b) => {
-    const c = b.checks || {};
-    return s + (c.draft?1:0) + (c.inks?1:0) + (c.surface?1:0);
-  }, 0);
-  const pct = Math.round(totalChecks / (total * 3) * 100);
+  const wtype = work?.workType || 'comic';
   const today = new Date(); today.setHours(0,0,0,0);
-  // 作画ブロック: 過去日のものがすべて完了しているか
-  const shouldDone = bs.filter(b => parseDate(b.date) < today).length;
-  const drawOk = done >= shouldDone;
-  // ネーム: 締切が過去日ならnameDoneが必要
-  const nameOk = !work.nameDeadline || parseDate(work.nameDeadline) >= today || !!work.nameDone;
-  return { pct, status: (drawOk && nameOk) ? 'ok' : 'ng', done, total };
+
+  if (wtype === 'comic') {
+    const bs = S.blocks.filter(b => b.workId === workId && b.type === 'drawing');
+    if (!bs.length) return { pct: 0, status: 'pending', done: 0, total: 0 };
+    const done = bs.filter(b => blockDone(b)).length;
+    const total = bs.length;
+    const totalChecks = bs.reduce((s, b) => {
+      const c = b.checks || {};
+      return s + (c.draft?1:0) + (c.inks?1:0) + (c.surface?1:0);
+    }, 0);
+    const pct = Math.round(totalChecks / (total * 3) * 100);
+    const shouldDone = bs.filter(b => parseDate(b.date) < today).length;
+    const drawOk = done >= shouldDone;
+    const nameOk = !work.nameDeadline || parseDate(work.nameDeadline) >= today || !!work.nameDone;
+    return { pct, status: (drawOk && nameOk) ? 'ok' : 'ng', done, total };
+  } else {
+    // 非Comic: workTasksのチェック数で進捗
+    const tasks = work?.workTasks || [];
+    if (!tasks.length) return { pct: 0, status: 'pending', done: 0, total: 0 };
+    const done = tasks.filter(t => t.done).length;
+    const total = tasks.length;
+    const pct = Math.round(done / total * 100);
+    const shouldDone = tasks.filter(t => t.date && parseDate(t.date) < today).length;
+    const doneOnTime = tasks.filter(t => t.date && parseDate(t.date) < today && t.done).length;
+    return { pct, status: doneOnTime >= shouldDone ? 'ok' : 'ng', done, total };
+  }
 }
 
 // ===== ROUTING =====
@@ -842,7 +853,7 @@ function renderCalendarScroll(el) {
 
     // 締め切り・ネーム締め切り
     S.works.forEach(w => {
-      if (w.nameDeadline === ds) chips += `<div class="cal-scroll-chip" style="background:#3a1e1e;color:#e07070;border-left:3px solid #e07070">✎ネーム〆 ${w.title.slice(0,12)}</div>`;
+      if (w.nameDeadline === ds) chips += `<div class="cal-scroll-chip" style="background:#3a1e1e;color:#e07070;border-left:3px solid #e07070;${w.nameDone?'text-decoration:line-through;opacity:0.5':''}">✎ネーム〆 ${w.title.slice(0,12)}</div>`;
       if (w.deadline === ds) chips += `<div class="cal-scroll-chip" style="background:#3a2a1e;color:#d4915a;border-left:3px solid #d4915a">⚑〆 ${w.title.slice(0,12)}</div>`;
     });
 
@@ -919,7 +930,7 @@ function calCell(date, other, today) {
 
   let chips = '';
   S.works.forEach(w => {
-    if (w.nameDeadline === ds) chips += `<div class="block-chip name-d">✎ネーム〆 ${w.title.slice(0,7)}</div>`;
+    if (w.nameDeadline === ds) chips += `<div class="block-chip name-d" style="${w.nameDone?'text-decoration:line-through;opacity:0.5':''}">✎ネーム〆 ${w.title.slice(0,7)}</div>`;
     if (w.deadline === ds) chips += `<div class="block-chip deadline-d" style="border-left:2px solid ${w.color}">⚑〆 ${w.title.slice(0,7)}</div>`;
   });
   S.blocks.filter(b => b.date === ds).forEach(b => {
@@ -982,7 +993,10 @@ function renderWorks() {
     const prog = getProgress(w.id);
     const dl = daysLeft(w.deadline);
     return `<div class="work-card" style="border-left-color:${w.color}" onclick="switchView('work-detail','${w.id}')">
-      <div class="work-title">${w.title}</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+        <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:${w.color}22;color:${w.color}">${{comic:'Comic',project:'Project',illust:'Illust','3d':'3D'}[w.workType||'comic']||'Comic'}</span>
+        <div class="work-title" style="margin:0">${w.title}</div>
+      </div>
       <div class="work-meta">
         <span>📄 ${w.pages}p</span>
         <span>⚑ ${w.deadline}</span>
@@ -1004,76 +1018,114 @@ function renderDetail() {
   const work = S.works.find(w => w.id === S.selectedWork);
   if (!work) { el.innerHTML = ''; return; }
 
-  // 作画ブロック（pageNum順にソート）
-  const drawBlocks = S.blocks.filter(b => b.workId===work.id && b.type==='drawing').sort((a,b)=>a.pageNum-b.pageNum);
-  const taskBlocks = S.blocks.filter(b => b.workId===work.id && b.type!=='drawing').sort((a,b)=>a.date.localeCompare(b.date));
-
+  const wtype = work.workType || 'comic';
+  const isComic = wtype === 'comic';
   const prog = getProgress(work.id);
   const dl = daysLeft(work.deadline);
+  const typeLabel = {comic:'Comic',project:'Project',illust:'Illust','3d':'3D'}[wtype] || wtype;
 
   let html = `<div class="work-header-card" style="border-left-color:${work.color}">
-    <div class="work-title">${work.title}</div>
-    <div class="work-meta" style="margin-top:6px">
-      <span>📄 ${work.pages}p</span>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${work.color}22;color:${work.color}">${typeLabel}</span>
+      <div class="work-title" style="margin:0">${work.title}</div>
+    </div>
+    <div class="work-meta" style="margin-top:4px">
+      ${isComic ? `<span>📄 ${work.pages}p</span>` : ''}
       <span>⚑ 締切 ${work.deadline}（残${dl}日）</span>
     </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:${prog.pct}%;background:${work.color}"></div></div>
+    ${work.memo ? `<div style="font-size:12px;color:var(--text3);margin-top:6px;line-height:1.6;white-space:pre-wrap">${work.memo}</div>` : ''}
+    <div class="progress-bar" style="margin-top:8px"><div class="progress-fill" style="width:${prog.pct}%;background:${work.color}"></div></div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
       <span class="badge ${prog.status}">${prog.status==='ok'?'進捗OK':prog.status==='ng'?'進捗NG':'未着手'}</span>
       <span style="font-size:11px;color:var(--text3)">${prog.done}/${prog.total}完了 (${prog.pct}%)</span>
     </div>
   </div>`;
 
-  // ネーム・入稿チェックボックス
+  // マイルストーン（Comicのみネーム完了を表示）
   html += '<div class="section-label">マイルストーン</div>';
-  html += `<div class="milestone-row">
-    <div class="milestone-item">
+  html += '<div class="milestone-row">';
+  if (isComic) {
+    html += `<div class="milestone-item">
       <label class="ms-label ${work.nameDone?'ms-done':''}">
         <input type="checkbox" ${work.nameDone?'checked':''} onchange="toggleWorkFlag('${work.id}','nameDone',this.checked)"
           style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer">
         <span>ネーム完了</span>
         ${work.nameDeadline ? `<span class="ms-deadline ${work.nameDone?'':'ms-deadline-pending'}">〆 ${work.nameDeadline}（${DAYS_JP[parseDate(work.nameDeadline).getDay()]}）</span>` : ''}
       </label>
-    </div>
-    <div class="milestone-item">
-      <label class="ms-label ${work.nyukoDone?'ms-done':''}">
-        <input type="checkbox" ${work.nyukoDone?'checked':''} onchange="toggleWorkFlag('${work.id}','nyukoDone',this.checked)"
-          style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer">
-        <span>入稿完了</span>
-        <span class="ms-deadline">〆 ${work.deadline}（${DAYS_JP[parseDate(work.deadline).getDay()]}）</span>
-      </label>
-    </div>
-  </div>`;
+    </div>`;
+  }
+  html += `<div class="milestone-item">
+    <label class="ms-label ${work.nyukoDone?'ms-done':''}">
+      <input type="checkbox" ${work.nyukoDone?'checked':''} onchange="toggleWorkFlag('${work.id}','nyukoDone',this.checked)"
+        style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer">
+      <span>入稿完了</span>
+      <span class="ms-deadline">〆 ${work.deadline}（${DAYS_JP[parseDate(work.deadline).getDay()]}）</span>
+    </label>
+  </div></div>`;
 
-  // 作画ブロック（テーブル形式）
-  html += '<div class="section-label">作画スケジュール</div>';
-  html += `<table class="blocks-table">
-    <thead><tr>
-      <th>Page</th><th>日付</th>
-      <th class="chk-head" title="Draft">D</th>
-      <th class="chk-head" title="Inks">I</th>
-      <th class="chk-head" title="Surface">S</th>
-    </tr></thead><tbody>`;
-  drawBlocks.forEach(b => {
-    const dow = DAYS_JP[parseDate(b.date).getDay()];
-    const c = b.checks || {};
-    const isDone = blockDone(b);
-    const chk = (key) => `<td class="chk-cell"><input type="checkbox" ${c[key]?'checked':''} onchange="toggleCheck('${b.id}','${key}',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer"></td>`;
-    html += `<tr class="${isDone?'row-done':''}">
-      <td class="page-num">${b.pageNum}p</td>
-      <td class="page-date">${b.date}（${dow}）</td>
-      ${chk('draft')}${chk('inks')}${chk('surface')}
-    </tr>`;
+  // 作品タスク（全タイプ共通） ← 作画スケジュールの前に配置
+  const workTasks = (work.workTasks||[]).slice().sort((a,b) => {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date.localeCompare(b.date);
   });
-  html += '</tbody></table>';
+  const chkSvg = '<svg width="10" height="10" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2"/></svg>';
+  html += `<div class="section-label" style="display:flex;align-items:center;justify-content:space-between">
+    <span>${isComic ? 'ネームタスク' : 'タスク'}</span>
+    <button class="btn" style="padding:2px 10px;font-size:11px" onclick="openAddWorkTask('${work.id}')">＋ 追加</button>
+  </div>`;
+  if (workTasks.length === 0) {
+    html += '<div style="font-size:12px;color:var(--text3);padding:8px 0 12px">タスクがありません</div>';
+  }
+  workTasks.forEach((t, i) => {
+    const dow = t.date ? DAYS_JP[parseDate(t.date).getDay()] : '';
+    html += `<div class="block-row ${t.done?'done':''}">
+      <div class="check-box ${t.done?'checked':''}" onclick="toggleWorkTask('${work.id}',${i})">
+        ${t.done ? chkSvg : ''}
+      </div>
+      <div class="block-info">
+        <div class="block-name">${t.title||'タスク'}</div>
+        ${t.date ? `<div class="block-date">${t.date}（${dow}）</div>` : ''}
+      </div>
+      <button class="btn" style="padding:2px 8px;font-size:11px;flex-shrink:0" onclick="openEditWorkTask('${work.id}',${i})">編集</button>
+      <button class="btn danger" style="padding:2px 8px;font-size:11px;flex-shrink:0" onclick="deleteWorkTask('${work.id}',${i})">削除</button>
+    </div>`;
+  });
 
+  // 作画スケジュール（Comicのみ・ネームタスクの後）
+  if (isComic) {
+    const drawBlocks = S.blocks.filter(b => b.workId===work.id && b.type==='drawing').sort((a,b)=>a.pageNum-b.pageNum);
+    html += '<div class="section-label">作画スケジュール</div>';
+    html += `<table class="blocks-table">
+      <thead><tr><th>Page</th><th>日付</th>
+        <th class="chk-head" title="Draft">D</th>
+        <th class="chk-head" title="Inks">I</th>
+        <th class="chk-head" title="Surface">S</th>
+      </tr></thead><tbody>`;
+    drawBlocks.forEach(b => {
+      const dow = DAYS_JP[parseDate(b.date).getDay()];
+      const c = b.checks || {};
+      const isDone = blockDone(b);
+      const chk = (key) => '<td class="chk-cell"><input type="checkbox" ' + (c[key]?'checked':'') + ' onchange="toggleCheck(\'' + b.id + '\',\'' + key + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer"></td>';
+      html += '<tr class="' + (isDone?'row-done':'') + '">'
+        + '<td class="page-num">' + b.pageNum + 'p</td>'
+        + '<td class="page-date">' + b.date + '（' + dow + '）</td>'
+        + chk('draft') + chk('inks') + chk('surface')
+        + '</tr>';
+    });
+    html += '</tbody></table>';
+  }
+
+  // 旧タスクブロック（互換性のため残す）
+  const taskBlocks = S.blocks.filter(b => b.workId===work.id && b.type!=='drawing').sort((a,b)=>a.date.localeCompare(b.date));
   if (taskBlocks.length) {
-    html += '<div class="section-label">タスク・その他</div>';
+    html += '<div class="section-label">その他タスク</div>';
     taskBlocks.forEach(b => {
       const dow = DAYS_JP[parseDate(b.date).getDay()];
       html += `<div class="block-row ${b.done?'done':''}">
         <div class="check-box ${b.done?'checked':''}" onclick="toggleDone('${b.id}')">
-          ${b.done?`<svg width="10" height="10" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2"/></svg>`:''}
+          ${b.done ? chkSvg : ''}
         </div>
         <div class="block-info">
           <div class="block-name">${b.title||'タスク'}</div>
@@ -1085,6 +1137,55 @@ function renderDetail() {
   }
 
   el.innerHTML = html;
+}
+
+function openAddWorkTask(workId) {
+  openModal('タスクを追加', `
+    <div class="form-row"><label>タスク名</label><input id="f-wt-title" placeholder="例: ネーム第1稿、下描き確認" autofocus /></div>
+    <div class="form-row"><label>日付（任意）</label><input id="f-wt-date" type="date" /></div>
+  `, '追加', () => {
+    const title = document.getElementById('f-wt-title').value.trim();
+    if (!title) return;
+    const w = S.works.find(w => w.id === workId);
+    if (!w) return;
+    if (!w.workTasks) w.workTasks = [];
+    w.workTasks.push({ id: uid(), title, date: document.getElementById('f-wt-date').value || null, done: false });
+    save(); closeModal(); renderAll();
+  });
+}
+
+function openEditWorkTask(workId, idx) {
+  const w = S.works.find(w => w.id === workId);
+  if (!w || !w.workTasks) return;
+  const t = w.workTasks[idx];
+  if (!t) return;
+  openModal('タスクを編集', `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <input type="checkbox" id="f-wt-done" ${t.done?'checked':''} style="width:16px;height:16px;accent-color:var(--success);cursor:pointer">
+      <label for="f-wt-done" style="font-size:13px;cursor:pointer;color:var(--text2)">完了</label>
+    </div>
+    <div class="form-row"><label>タスク名</label><input id="f-wt-title" value="${t.title||''}" /></div>
+    <div class="form-row"><label>日付（任意）</label><input id="f-wt-date" type="date" value="${t.date||''}" /></div>
+  `, '保存', () => {
+    t.done = document.getElementById('f-wt-done').checked;
+    t.title = document.getElementById('f-wt-title').value.trim();
+    t.date = document.getElementById('f-wt-date').value || null;
+    save(); closeModal(); renderAll();
+  });
+}
+
+function deleteWorkTask(workId, idx) {
+  const w = S.works.find(w => w.id === workId);
+  if (!w || !w.workTasks) return;
+  w.workTasks.splice(idx, 1);
+  save(); renderAll();
+}
+
+function toggleWorkTask(workId, idx) {
+  const w = S.works.find(w => w.id === workId);
+  if (!w || !w.workTasks) return;
+  w.workTasks[idx].done = !w.workTasks[idx].done;
+  save(); renderAll();
 }
 
 // ===== TASK LIST =====
@@ -1146,7 +1247,7 @@ function renderTaskCard(t) {
     <div style="margin-top:6px;padding-left:2px">
       ${subs.map((s,i) => `<div style="display:flex;align-items:center;gap:5px;padding:3px 0">
         <div style="width:13px;height:13px;border:1px solid var(--border);border-radius:2px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;background:${s.done?'var(--success)':'transparent'};border-color:${s.done?'var(--success)':'var(--border)'}"
-          onclick="toggleSubTaskFromList('${t.id}',${i})">
+          onclick="toggleSubTaskFromListById('${t.id}','${s.id}')">
           ${s.done?`<svg width="8" height="8" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2"/></svg>`:''}
         </div>
         <span style="font-size:11px;${s.done?'opacity:0.4;text-decoration:line-through':''}">${s.title}</span>
@@ -1169,10 +1270,10 @@ function renderTaskCard(t) {
   </div>`;
 }
 
-function toggleSubTaskFromList(taskId, idx) {
-  const t = S.tasks.find(t => t.id === taskId);
-  if (!t || !t.subTasks) return;
-  t.subTasks[idx].done = !t.subTasks[idx].done;
+function toggleSubTaskFromListById(taskId, subId) {
+  const s = _findSubTask(taskId, subId);
+  if (!s) return;
+  s.done = !s.done;
   save(); renderAll();
 }
 
@@ -1267,20 +1368,26 @@ function handleOverlayClick(e) {
 function openNewWork() {
   const defColor = COLORS[S.works.length % COLORS.length];
   const defDeadline = dateStr(nextWeekday(new Date(), 5));
+  const typeOpts = ['comic','project','illust','3d'].map(t =>
+    `<option value="${t}">${{comic:'Comic',project:'Project',illust:'Illust','3d':'3D'}[t]}</option>`).join('');
   openModal('新しい作品',
-    `<div class="form-row"><label>タイトル</label><input id="f-title" placeholder="例: 月刊○○ 第13話" autofocus /></div>
-     <div class="form-row"><label>ページ数</label><input id="f-pages" type="number" value="8" min="1" max="200" /></div>
+    `<div class="form-row"><label>タイプ</label>
+       <select id="f-type" onchange="document.getElementById('f-pages-row').style.display=this.value==='comic'?'':'none'">${typeOpts}</select></div>
+     <div class="form-row"><label>タイトル</label><input id="f-title" placeholder="例: 月刊○○ 第13話" autofocus /></div>
+     <div class="form-row" id="f-pages-row"><label>ページ数</label><input id="f-pages" type="number" value="8" min="1" max="200" /></div>
      <div class="form-row"><label>締切日</label><input id="f-deadline" type="date" value="${defDeadline}" /></div>
      <div class="form-row"><label>カラー</label><input id="f-color" type="color" value="${defColor}" /></div>`,
     '作成', () => {
       const title = document.getElementById('f-title').value.trim();
-      const pages = parseInt(document.getElementById('f-pages').value) || 0;
+      const wtype = document.getElementById('f-type').value;
+      const pages = wtype === 'comic' ? (parseInt(document.getElementById('f-pages').value) || 0) : 0;
       const deadline = document.getElementById('f-deadline').value;
       const color = document.getElementById('f-color').value;
-      if (!title || !pages || !deadline) { alert('全項目を入力してください'); return; }
-      const w = newWork(title, pages, deadline, color);
+      if (!title || !deadline) { alert('タイトルと締切日を入力してください'); return; }
+      if (wtype === 'comic' && !pages) { alert('ページ数を入力してください'); return; }
+      const w = newWork(title, pages, deadline, color, wtype);
       S.works.push(w);
-      autoBlocks(w);
+      if (wtype === 'comic') autoBlocks(w);
       save(); closeModal(); switchView('work-detail', w.id);
     });
 }
@@ -1288,19 +1395,32 @@ function openNewWork() {
 function openEditWork(workId) {
   const w = S.works.find(w => w.id === workId);
   if (!w) return;
+  const wtype = w.workType || 'comic';
+  const typeOpts = ['comic','project','illust','3d'].map(t =>
+    `<option value="${t}" ${t===wtype?'selected':''}>${{comic:'Comic',project:'Project',illust:'Illust','3d':'3D'}[t]}</option>`).join('');
+  const isComic = wtype === 'comic';
   openModal('作品を編集',
-    `<div class="form-row"><label>タイトル</label><input id="f-title" value="${w.title}" /></div>
-     <div class="form-row"><label>ページ数</label><input id="f-pages" type="number" value="${w.pages}" min="1" /></div>
+    `<div class="form-row"><label>タイプ</label>
+       <select id="f-type" onchange="document.getElementById('f-pages-row').style.display=this.value==='comic'?'':'none'">${typeOpts}</select></div>
+     <div class="form-row"><label>タイトル</label><input id="f-title" value="${w.title}" /></div>
+     <div class="form-row" id="f-pages-row" style="display:${isComic?'':'none'}"><label>ページ数</label><input id="f-pages" type="number" value="${w.pages||8}" min="1" /></div>
      <div class="form-row"><label>締切日</label><input id="f-deadline" type="date" value="${w.deadline}" /></div>
      <div class="form-row"><label>カラー</label><input id="f-color" type="color" value="${w.color}" /></div>
-     <div class="info-box" style="margin-top:4px">ページ数・締切を変更すると作画ブロックが再生成されます</div>
+     <div class="form-row"><label>メモ</label><textarea id="f-memo" rows="4" style="width:100%;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:13px;font-family:var(--font);resize:vertical;outline:none">${w.memo||''}</textarea></div>
+     ${isComic?'<div class="info-box" style="margin-top:4px">ページ数・締切を変更すると作画ブロックが再生成されます</div>':''}
      <div style="margin-top:8px"><button class="btn danger" style="width:100%" onclick="deleteWork('${w.id}')">この作品を削除</button></div>`,
     '保存', () => {
+      const newType = document.getElementById('f-type').value;
       w.title = document.getElementById('f-title').value.trim();
-      w.pages = parseInt(document.getElementById('f-pages').value) || w.pages;
+      w.workType = newType;
       w.deadline = document.getElementById('f-deadline').value;
       w.color = document.getElementById('f-color').value;
-      autoBlocks(w); save(); closeModal(); renderAll();
+      w.memo = document.getElementById('f-memo').value.trim();
+      if (newType === 'comic') {
+        w.pages = parseInt(document.getElementById('f-pages').value) || w.pages;
+        autoBlocks(w);
+      }
+      save(); closeModal(); renderAll();
     });
 }
 
@@ -1389,16 +1509,24 @@ function openNewTaskOnDate(ds) {
 }
 
 function subTasksHTML(t) {
-  const subs = (t.subTasks||[]);
+  // 日付順ソート（日付なしは末尾）。インデックスではなくIDで操作する
+  const subs = (t.subTasks||[]).slice().sort((a,b) => {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date.localeCompare(b.date);
+  });
   const chkSvg = `<svg width="9" height="9" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2"/></svg>`;
-  const rows = subs.map((s,i) => `
-    <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
-      <div style="width:16px;height:16px;border:1.5px solid ${s.done?'var(--success)':'var(--border)'};border-radius:3px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;background:${s.done?'var(--success)':'transparent'}"
-        onclick="toggleSubTask('${t.id}',${i})">${s.done?chkSvg:''}</div>
-      <span style="flex:1;font-size:12px;${s.done?'opacity:0.45;text-decoration:line-through':''}">${s.title}</span>
-      <input type="date" value="${s.date||''}" onchange="updateSubTaskDate('${t.id}',${i},this.value)"
+  const rows = subs.map(s => `
+    <div style="display:flex;align-items:flex-center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <div style="width:16px;height:16px;border:1.5px solid ${s.done?'var(--success)':'var(--border)'};border-radius:3px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;background:${s.done?'var(--success)':'transparent'};margin-top:1px"
+        onclick="toggleSubTaskById('${t.id}','${s.id}')">${s.done?chkSvg:''}</div>
+      <input type="text" value="${(s.title||'').replace(/"/g,'&quot;')}"
+        onchange="updateSubTaskTitle('${t.id}','${s.id}',this.value)"
+        style="flex:1;min-width:80px;padding:2px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px;font-family:var(--font);outline:none;${s.done?'opacity:0.45;text-decoration:line-through':''}">
+      <input type="date" value="${s.date||''}" onchange="updateSubTaskDate('${t.id}','${s.id}',this.value)"
         style="width:120px;padding:2px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text3);border-radius:4px;font-size:10px;font-family:var(--font);outline:none;-webkit-appearance:none">
-      <button onclick="deleteSubTask('${t.id}',${i})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0 2px;line-height:1">×</button>
+      <button onclick="deleteSubTaskById('${t.id}','${s.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0 2px;line-height:1">×</button>
     </div>`).join('');
   return `<div id="subtask-list">${rows}</div>
     <div style="display:flex;gap:6px;margin-top:6px">
@@ -1408,30 +1536,43 @@ function subTasksHTML(t) {
     </div>`;
 }
 
-function toggleSubTask(taskId, idx) {
+function _findSubTask(taskId, subId) {
   const t = S.tasks.find(t => t.id === taskId);
-  if (!t || !t.subTasks) return;
-  t.subTasks[idx].done = !t.subTasks[idx].done;
+  if (!t || !t.subTasks) return null;
+  return t.subTasks.find(s => s.id === subId) || null;
+}
+
+function toggleSubTaskById(taskId, subId) {
+  const s = _findSubTask(taskId, subId);
+  if (!s) return;
+  s.done = !s.done;
   save(); renderAll();
   const wrap = document.getElementById('f-subtask-wrap');
-  if (wrap) wrap.innerHTML = subTasksHTML(t);
+  if (wrap) { const t = S.tasks.find(t => t.id === taskId); if (t) wrap.innerHTML = subTasksHTML(t); }
 }
 
-function updateSubTaskDate(taskId, idx, value) {
-  const t = S.tasks.find(t => t.id === taskId);
-  if (!t || !t.subTasks) return;
-  t.subTasks[idx].date = value || null;
+function updateSubTaskTitle(taskId, subId, value) {
+  const s = _findSubTask(taskId, subId);
+  if (!s) return;
+  s.title = value.trim() || s.title;
   save(); renderAll();
 }
 
+function updateSubTaskDate(taskId, subId, value) {
+  const s = _findSubTask(taskId, subId);
+  if (!s) return;
+  s.date = value || null;
+  save(); renderAll();
+  // 日付変わったらソート順が変わるので再描画
+  const wrap = document.getElementById('f-subtask-wrap');
+  if (wrap) { const t = S.tasks.find(t => t.id === taskId); if (t) wrap.innerHTML = subTasksHTML(t); }
+}
 
-
-function deleteSubTask(taskId, idx) {
+function deleteSubTaskById(taskId, subId) {
   const t = S.tasks.find(t => t.id === taskId);
   if (!t || !t.subTasks) return;
-  t.subTasks.splice(idx, 1);
+  t.subTasks = t.subTasks.filter(s => s.id !== subId);
   save(); renderAll();
-  // モーダルのサブタスク欄だけ更新
   const wrap = document.getElementById('f-subtask-wrap');
   if (wrap) wrap.innerHTML = subTasksHTML(t);
 }
@@ -1462,7 +1603,7 @@ function openEditTask(taskId, e) {
     <div class="form-row"><label>日付</label><input id="f-task-date" type="date" value="${t.date||''}" /></div>
     <div class="form-row"><label>時間</label><input id="f-task-time" type="time" value="${t.time||''}" /></div>
     <div class="form-row"><label>タグ</label><div id="f-tag-checks">${tagCheckboxesHTML(t.tagIds||[])}</div></div>
-    <div class="form-row"><label>メモ</label><textarea id="f-task-memo" rows="2" style="width:100%;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:13px;font-family:var(--font);resize:vertical;outline:none">${t.memo||''}</textarea></div>
+    <div class="form-row"><label>メモ</label><textarea id="f-task-memo" rows="5" style="width:100%;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:13px;font-family:var(--font);resize:vertical;outline:none;min-height:100px">${t.memo||''}</textarea></div>
     <div class="form-row"><label>サブタスク</label><div id="f-subtask-wrap">${subTasksHTML(t)}</div></div>
     <div style="margin-top:8px"><button class="btn danger" style="width:100%" onclick="deleteTask('${t.id}')">このタスクを削除</button></div>
   `, '保存', () => {
@@ -1488,7 +1629,8 @@ function openTagManager() {
       <div class="tag-manager-row">
         <input type="color" value="${g.color}" onchange="updateTagColor('${g.id}',this.value)"
           style="width:28px;height:28px;padding:2px;border:none;background:none;cursor:pointer;flex-shrink:0">
-        <span style="flex:1;font-size:13px">${g.name}</span>
+        <input type="text" value="${g.name}" onchange="updateTagName('${g.id}',this.value)"
+          style="flex:1;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:13px;font-family:var(--font);outline:none">
         <button class="btn danger" style="padding:2px 8px;font-size:11px" onclick="deleteTag('${g.id}')">削除</button>
       </div>`).join('');
     const addRow = `<div style="display:flex;gap:6px;margin-top:10px">
@@ -1516,7 +1658,12 @@ function addTag() {
 
 function updateTagColor(tagId, color) {
   const g = S.tags.find(g => g.id === tagId);
-  if (g) { g.color = color; save(); }
+  if (g) { g.color = color; save(); renderAll(); }
+}
+
+function updateTagName(tagId, name) {
+  const g = S.tags.find(g => g.id === tagId);
+  if (g && name.trim()) { g.name = name.trim(); save(); renderAll(); }
 }
 
 function deleteTag(tagId) {
