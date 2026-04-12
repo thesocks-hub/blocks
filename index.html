@@ -701,10 +701,17 @@ function _endDrag(clientX, clientY) {
       const t = S.tasks.find(t => t.id === _drag.id);
       if (t && t.date !== targetDate) { t.date = targetDate; save(); renderAll(); }
     } else if (_drag.type === 'subtask') {
-      const [taskId, idxStr] = _drag.id.split('::');
+      // ID形式: taskId::subId
+      const [taskId, subId] = _drag.id.split('::');
       const t = S.tasks.find(t => t.id === taskId);
-      const s = t?.subTasks?.[parseInt(idxStr)];
+      const s = t?.subTasks?.find(s => s.id === subId);
       if (s && s.date !== targetDate) { s.date = targetDate; save(); renderAll(); }
+    } else if (_drag.type === 'worktask') {
+      // workId::taskId
+      const [workId, taskId] = _drag.id.split('::');
+      const w = S.works.find(w => w.id === workId);
+      const t = w?.workTasks?.find(t => t.id === taskId);
+      if (t && t.date !== targetDate) { t.date = targetDate; save(); renderAll(); }
     }
   }
   _drag = null; _lastDropCell = null;
@@ -894,8 +901,9 @@ function renderCalendarScroll(el) {
     S.works.forEach(w => {
       (w.workTasks||[]).forEach(t => {
         if (!t.date || t.date !== ds) return;
-        chips += `<div class="cal-scroll-chip ${t.done?'done':''}"
-          style="background:${w.color}11;color:${w.color}cc;border-left:3px solid ${w.color}66;${t.done?'opacity:0.4;text-decoration:line-through':''};cursor:pointer"
+        chips += `<div class="cal-scroll-chip chip-draggable ${t.done?'done':''}"
+          data-drag-type="worktask" data-drag-id="${w.id}::${t.id}"
+          style="background:${w.color}11;color:${w.color}cc;border-left:3px solid ${w.color}66;${t.done?'opacity:0.4;text-decoration:line-through':''};cursor:grab;touch-action:none"
           onclick="openEditWorkTask('${w.id}','${t.id}')">${w.title.slice(0,6)} ${(t.title||'').slice(0,10)}</div>`;
       });
     });
@@ -980,8 +988,9 @@ function calCell(date, other, today) {
   S.works.forEach(w => {
     (w.workTasks||[]).forEach(t => {
       if (!t.date || t.date !== ds) return;
-      chips += `<div class="block-chip ${t.done?'done':''}"
-        style="border-left:2px solid ${w.color}88;background:${w.color}11;color:${w.color}cc;cursor:pointer"
+      chips += `<div class="block-chip chip-draggable ${t.done?'done':''}"
+        data-drag-type="worktask" data-drag-id="${w.id}::${t.id}"
+        style="border-left:2px solid ${w.color}88;background:${w.color}11;color:${w.color}cc;cursor:grab;touch-action:none"
         onclick="openEditWorkTask('${w.id}','${t.id}')">${w.title.slice(0,5)} ${(t.title||'').slice(0,8)}</div>`;
     });
   });
@@ -1096,15 +1105,19 @@ function renderDetail() {
   if (workTasks.length === 0) {
     html += '<div style="font-size:12px;color:var(--text3);padding:8px 0 12px">タスクがありません</div>';
   } else {
-    html += '<table class="blocks-table"><thead><tr><th>タスク</th><th>日付</th><th class="chk-head" title="完了">✓</th><th></th></tr></thead><tbody>';
+    html += '<table class="blocks-table"><thead><tr>'
+      + '<th class="col-id">タスク</th><th>日付</th>'
+      + '<th class="edit-head"></th>'
+      + '<th class="chk-head" title="完了">✓</th>'
+      + '</tr></thead><tbody>';
     workTasks.forEach(function(t) {
       const dow = t.date ? '（' + DAYS_JP[parseDate(t.date).getDay()] + '）' : '';
       const chkd = t.done ? 'checked' : '';
       html += '<tr class="' + (t.done ? 'row-done' : '') + '">'
-        + '<td class="page-num" style="color:var(--text)">' + (t.title||'タスク') + '</td>'
-        + '<td class="page-date">' + (t.date ? t.date + dow : '—') + '</td>'
-        + '<td class="chk-cell"><input type="checkbox" ' + chkd + ' onchange="toggleWorkTaskById(\'' + work.id + '\',\'' + t.id + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer"></td>'
-        + '<td style="white-space:nowrap"><button class="btn" style="padding:2px 6px;font-size:11px" onclick="openEditWorkTask(\'' + work.id + '\',\'' + t.id + '\')">編集</button></td>'
+        + '<td class="col-id" style="color:var(--text)">' + (t.title||'タスク') + '</td>'
+        + '<td class="col-date">' + (t.date ? t.date + dow : '—') + '</td>'
+        + '<td class="col-edit"><button class="btn" style="padding:2px 6px;font-size:11px" onclick="openEditWorkTask(\'' + work.id + '\',\'' + t.id + '\')">編集</button></td>'
+        + '<td class="col-chk"><input type="checkbox" ' + chkd + ' onchange="toggleWorkTaskById(\'' + work.id + '\',\'' + t.id + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer"></td>'
         + '</tr>';
     });
     html += '</tbody></table>';
@@ -1114,20 +1127,20 @@ function renderDetail() {
   if (isComic) {
     const drawBlocks = S.blocks.filter(b => b.workId===work.id && b.type==='drawing').sort((a,b)=>a.pageNum-b.pageNum);
     html += '<div class="section-label">作画スケジュール</div>';
-    html += `<table class="blocks-table">
-      <thead><tr><th>Page</th><th>日付</th>
-        <th class="chk-head" title="Draft">D</th>
-        <th class="chk-head" title="Inks">I</th>
-        <th class="chk-head" title="Surface">S</th>
-      </tr></thead><tbody>`;
+    html += '<table class="blocks-table"><thead><tr>'
+      + '<th class="col-id">Page</th><th>日付</th>'
+      + '<th class="chk-head" title="Draft">D</th>'
+      + '<th class="chk-head" title="Inks">I</th>'
+      + '<th class="chk-head" title="Surface">S</th>'
+      + '</tr></thead><tbody>';
     drawBlocks.forEach(b => {
       const dow = DAYS_JP[parseDate(b.date).getDay()];
       const c = b.checks || {};
       const isDone = blockDone(b);
-      const chk = (key) => '<td class="chk-cell"><input type="checkbox" ' + (c[key]?'checked':'') + ' onchange="toggleCheck(\'' + b.id + '\',\'' + key + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer"></td>';
+      const chk = (key) => '<td class="col-chk"><input type="checkbox" ' + (c[key]?'checked':'') + ' onchange="toggleCheck(\'' + b.id + '\',\'' + key + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer"></td>';
       html += '<tr class="' + (isDone?'row-done':'') + '">'
-        + '<td class="page-num">' + b.pageNum + 'p</td>'
-        + '<td class="page-date">' + b.date + '（' + dow + '）</td>'
+        + '<td class="col-id">' + b.pageNum + 'p</td>'
+        + '<td class="col-date">' + b.date + '（' + dow + '）</td>'
         + chk('draft') + chk('inks') + chk('surface')
         + '</tr>';
     });
@@ -1213,26 +1226,35 @@ function toggleWorkTaskById(workId, taskId, checked) {
 }
 
 // ===== TASK LIST =====
-let taskFilterTag = null; // null=全件
+let taskFilterTag = null;   // null=全件
+let taskFilterDone = null;  // null=全件, true=完了, false=未完了
 
 function renderTasks() {
   const el = document.getElementById('tasks-view');
   const today = new Date(); today.setHours(0,0,0,0);
 
-  // フィルター行
-  let html = `<div class="task-filters">
-    <span class="tag-pill ${!taskFilterTag?'active':''}" style="color:var(--text2);border-color:var(--border)" onclick="taskFilterTag=null;renderTasks()">すべて</span>`;
+  // フィルター行（タグ＋完了フィルター）
+  let html = '<div class="task-filters">'
+    + `<span class="tag-pill ${!taskFilterTag&&taskFilterDone===null?'active':''}" style="color:var(--text2);border-color:var(--border)" onclick="taskFilterTag=null;taskFilterDone=null;renderTasks()">すべて</span>`
+    + `<span class="tag-pill ${taskFilterDone===false?'active':''}" style="color:var(--accent2);border-color:var(--accent2)" onclick="taskFilterDone=taskFilterDone===false?null:false;renderTasks()">未完了</span>`
+    + `<span class="tag-pill ${taskFilterDone===true?'active':''}" style="color:var(--success);border-color:var(--success)" onclick="taskFilterDone=taskFilterDone===true?null:true;renderTasks()">完了済</span>`;
+  if (S.tags.length) html += '<span style="color:var(--border);padding:0 4px">|</span>';
   S.tags.forEach(g => {
     const active = taskFilterTag === g.id;
-    html += `<span class="tag-pill ${active?'active':''}" style="color:${g.color};background:${g.color}18" onclick="taskFilterTag='${g.id}';renderTasks()">${g.name}</span>`;
+    html += `<span class="tag-pill ${active?'active':''}" style="color:${g.color};background:${g.color}18" onclick="taskFilterTag=taskFilterTag==='${g.id}'?null:'${g.id}';renderTasks()">${g.name}</span>`;
   });
   html += `<span class="tag-pill" style="color:var(--text3)" onclick="openTagManager()">＋ タグ</span></div>`;
 
   // タスクを絞り込み
-  let tasks = S.tasks.filter(t => !taskFilterTag || t.tagIds.includes(taskFilterTag));
+  let tasks = S.tasks.filter(t => {
+    if (taskFilterTag && !(t.tagIds||[]).includes(taskFilterTag)) return false;
+    if (taskFilterDone === true && !t.done) return false;
+    if (taskFilterDone === false && t.done) return false;
+    return true;
+  });
 
   if (!tasks.length) {
-    html += `<div class="empty-state"><p>タスクがありません</p></div>`;
+    html += '<div class="empty-state"><p>タスクがありません</p></div>';
     el.innerHTML = html;
     return;
   }
@@ -1245,7 +1267,7 @@ function renderTasks() {
 
   const renderGroup = (label, list) => {
     if (!list.length) return '';
-    let g = `<div class="task-group-label">${label}</div>`;
+    let g = '<div class="task-group-label">' + label + '</div>';
     list.forEach(t => { g += renderTaskCard(t); });
     return g;
   };
@@ -1654,8 +1676,12 @@ function deleteTask(taskId) {
 
 function openTagManager() {
   const renderTagList = () => {
-    const rows = S.tags.map(g => `
+    const rows = S.tags.map((g, idx) => `
       <div class="tag-manager-row">
+        <div style="display:flex;flex-direction:column;gap:1px;flex-shrink:0">
+          <button onclick="moveTag('${g.id}',-1)" style="background:none;border:1px solid var(--border);color:var(--text3);cursor:pointer;border-radius:3px;padding:0 4px;font-size:10px;line-height:1.4" ${idx===0?'disabled':''}>▲</button>
+          <button onclick="moveTag('${g.id}',1)" style="background:none;border:1px solid var(--border);color:var(--text3);cursor:pointer;border-radius:3px;padding:0 4px;font-size:10px;line-height:1.4" ${idx===S.tags.length-1?'disabled':''}>▼</button>
+        </div>
         <input type="color" value="${g.color}" onchange="updateTagColor('${g.id}',this.value)"
           style="width:28px;height:28px;padding:2px;border:none;background:none;cursor:pointer;flex-shrink:0">
         <input type="text" value="${g.name}" onchange="updateTagName('${g.id}',this.value)"
@@ -1688,6 +1714,18 @@ function addTag() {
 function updateTagColor(tagId, color) {
   const g = S.tags.find(g => g.id === tagId);
   if (g) { g.color = color; save(); renderAll(); }
+}
+
+function moveTag(tagId, dir) {
+  const idx = S.tags.findIndex(g => g.id === tagId);
+  if (idx < 0) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= S.tags.length) return;
+  const tmp = S.tags[idx];
+  S.tags[idx] = S.tags[newIdx];
+  S.tags[newIdx] = tmp;
+  save(); renderAll();
+  if (window._reRenderTagList) window._reRenderTagList();
 }
 
 function updateTagName(tagId, name) {
