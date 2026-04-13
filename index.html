@@ -275,6 +275,24 @@
   .blocks-table .page-num { color: var(--accent2); font-weight: 500; width: 48px; white-space: nowrap; }
   .blocks-table .page-date { font-size: 12px; color: var(--text2); }
   .blocks-table .chk-cell { text-align: center; width: 36px; }
+  /* ===== WORK TASK LIST ===== */
+  .wl-row { display: flex; align-items: center; gap: 0; padding: 8px 10px; border-bottom: 1px solid var(--border); transition: background 0.1s; }
+  .wl-row:hover { background: var(--bg3); }
+  .wl-row.row-done { opacity: 0.4; }
+  .wl-header { display: flex; align-items: center; gap: 0; padding: 5px 10px; border-bottom: 1px solid var(--border); }
+  .wl-col-name { flex: 1; min-width: 0; font-size: 11px; color: var(--text3); letter-spacing: 0.04em; }
+  .wl-col-date { width: 160px; flex-shrink: 0; font-size: 11px; color: var(--text3); letter-spacing: 0.04em; }
+  .wl-col-chk  { width: 36px; flex-shrink: 0; display: flex; justify-content: center; }
+  .wl-name { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .wl-name:hover { color: var(--accent); }
+  .wl-date { width: 160px; flex-shrink: 0; font-size: 12px; color: var(--text2); }
+  .wl-chk  { width: 36px; flex-shrink: 0; display: flex; justify-content: center; }
+  /* 作画スケジュール追加列 */
+  .wl-col-dchk { width: 30px; flex-shrink: 0; font-size: 11px; color: var(--accent2); text-align: center; font-weight: 600; letter-spacing: 0.04em; }
+  .wl-dchk     { width: 30px; flex-shrink: 0; display: flex; justify-content: center; }
+  .wl-page     { width: 44px; flex-shrink: 0; font-size: 13px; color: var(--accent2); font-weight: 500; }
+  .wl-page-hd  { width: 44px; flex-shrink: 0; font-size: 11px; color: var(--text3); letter-spacing: 0.04em; }
+
   /* ===== MILESTONE ===== */
   .milestone-row { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
   .milestone-item { flex: 1; min-width: 160px; background: var(--bg2); border-radius: var(--radius); padding: 12px 14px; border: 1px solid var(--border); }
@@ -1092,7 +1110,7 @@ function renderDetail() {
     </label>
   </div></div>`;
 
-  // 作品タスク（全タイプ共通） ← 作画スケジュールの前に配置
+  // 作品タスク＋作画スケジュールを1つの統合グリッドで表示
   const workTasks = (work.workTasks||[]).slice().sort((a,b) => {
     if (!a.date && !b.date) return 0;
     if (!a.date) return 1;
@@ -1101,50 +1119,63 @@ function renderDetail() {
   });
   const chkSvg = '<svg width="10" height="10" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2"/></svg>';
   const wtLabel = isComic ? '作画準備' : 'タスク';
-  html += '<div class="section-label" style="display:flex;align-items:center;justify-content:space-between"><span>' + wtLabel + '</span><button class="btn" style="padding:2px 10px;font-size:11px" onclick="openAddWorkTask(\'' + work.id + '\')">＋ 追加</button></div>';
+  const drawBlocks = isComic ? S.blocks.filter(b => b.workId===work.id && b.type==='drawing').sort((a,b)=>a.pageNum-b.pageNum) : [];
+
+  // 統合グリッド: display:grid で列幅を確実に揃える
+  // 列: [識別 80px] [日付 auto] [D 32px] [I 32px] [S 32px] (作画スケジュール)
+  //     [識別 80px] [日付 auto] [✓ 32px] (作画準備 - D/I/Sはなし)
+  // → 全行共通: grid-template-columns: 80px 1fr 32px 32px 32px
+  const gridCols = '80px 1fr 32px 32px 32px';
+  const G = (style, content) => '<div style="' + style + '">' + content + '</div>';
+
+  // 作画準備セクション
+  html += '<div class="section-label" style="display:flex;align-items:center;justify-content:space-between">'
+    + '<span>' + wtLabel + '</span>'
+    + '<button class="btn" style="padding:2px 10px;font-size:11px" onclick="openAddWorkTask(\'' + work.id + '\')">＋ 追加</button>'
+    + '</div>';
+
   if (workTasks.length === 0) {
-    html += '<div style="font-size:12px;color:var(--text3);padding:8px 0 12px">タスクがありません</div>';
+    html += '<div style="font-size:12px;color:var(--text3);padding:6px 0 10px">タスクがありません</div>';
   } else {
-    html += '<table class="blocks-table"><thead><tr>'
-      + '<th class="col-id">タスク</th><th>日付</th>'
-      + '<th class="edit-head"></th>'
-      + '<th class="chk-head" title="完了">✓</th>'
-      + '</tr></thead><tbody>';
+    // ヘッダー行
+    html += '<div style="display:grid;grid-template-columns:' + gridCols + ';padding:5px 10px;border-bottom:1px solid var(--border)">'
+      + G('font-size:11px;color:var(--text3)', 'タスク')
+      + G('font-size:11px;color:var(--text3)', '日付')
+      + G('font-size:11px;color:var(--accent2);font-weight:600;text-align:center;grid-column:3/6', '✓')
+      + '</div>';
     workTasks.forEach(function(t) {
       const dow = t.date ? '（' + DAYS_JP[parseDate(t.date).getDay()] + '）' : '';
       const chkd = t.done ? 'checked' : '';
-      html += '<tr class="' + (t.done ? 'row-done' : '') + '">'
-        + '<td class="col-id" style="color:var(--text)">' + (t.title||'タスク') + '</td>'
-        + '<td class="col-date">' + (t.date ? t.date + dow : '—') + '</td>'
-        + '<td class="col-edit"><button class="btn" style="padding:2px 6px;font-size:11px" onclick="openEditWorkTask(\'' + work.id + '\',\'' + t.id + '\')">編集</button></td>'
-        + '<td class="col-chk"><input type="checkbox" ' + chkd + ' onchange="toggleWorkTaskById(\'' + work.id + '\',\'' + t.id + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer"></td>'
-        + '</tr>';
+      html += '<div style="display:grid;grid-template-columns:' + gridCols + ';align-items:center;padding:8px 10px;border-bottom:1px solid var(--border);' + (t.done?'opacity:0.4':'') + '">'
+        + G('overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;font-size:13px' + (t.done?';text-decoration:line-through':''), '<span onclick="openEditWorkTask(\'' + work.id + '\',\'' + t.id + '\')" style="color:var(--text)" title="クリックで編集">' + (t.title||'タスク') + '</span>')
+        + G('font-size:12px;color:var(--text2)', t.date ? t.date + dow : '—')
+        + G('display:flex;justify-content:center;align-items:center;grid-column:3/6', '<input type="checkbox" ' + chkd + ' onchange="toggleWorkTaskById(\'' + work.id + '\',\'' + t.id + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer">')
+        + '</div>';
     });
-    html += '</tbody></table>';
   }
 
-  // 作画スケジュール（Comicのみ・ネームタスクの後）
-  if (isComic) {
-    const drawBlocks = S.blocks.filter(b => b.workId===work.id && b.type==='drawing').sort((a,b)=>a.pageNum-b.pageNum);
+  // 作画スケジュール（Comicのみ）
+  if (isComic && drawBlocks.length > 0) {
     html += '<div class="section-label">作画スケジュール</div>';
-    html += '<table class="blocks-table"><thead><tr>'
-      + '<th class="col-id">Page</th><th>日付</th>'
-      + '<th class="chk-head" title="Draft">D</th>'
-      + '<th class="chk-head" title="Inks">I</th>'
-      + '<th class="chk-head" title="Surface">S</th>'
-      + '</tr></thead><tbody>';
+    // ヘッダー行（同じgridCols）
+    html += '<div style="display:grid;grid-template-columns:' + gridCols + ';padding:5px 10px;border-bottom:1px solid var(--border)">'
+      + G('font-size:11px;color:var(--text3)', 'Page')
+      + G('font-size:11px;color:var(--text3)', '日付')
+      + G('font-size:11px;color:var(--accent2);font-weight:600;text-align:center', 'D')
+      + G('font-size:11px;color:var(--accent2);font-weight:600;text-align:center', 'I')
+      + G('font-size:11px;color:var(--accent2);font-weight:600;text-align:center', 'S')
+      + '</div>';
     drawBlocks.forEach(b => {
       const dow = DAYS_JP[parseDate(b.date).getDay()];
       const c = b.checks || {};
       const isDone = blockDone(b);
-      const chk = (key) => '<td class="col-chk"><input type="checkbox" ' + (c[key]?'checked':'') + ' onchange="toggleCheck(\'' + b.id + '\',\'' + key + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer"></td>';
-      html += '<tr class="' + (isDone?'row-done':'') + '">'
-        + '<td class="col-id">' + b.pageNum + 'p</td>'
-        + '<td class="col-date">' + b.date + '（' + dow + '）</td>'
-        + chk('draft') + chk('inks') + chk('surface')
-        + '</tr>';
+      const dchk = (key) => G('display:flex;justify-content:center;align-items:center', '<input type="checkbox" ' + (c[key]?'checked':'') + ' onchange="toggleCheck(\'' + b.id + '\',\'' + key + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer">');
+      html += '<div style="display:grid;grid-template-columns:' + gridCols + ';align-items:center;padding:8px 10px;border-bottom:1px solid var(--border);' + (isDone?'opacity:0.4':'') + '">'
+        + G('font-size:13px;color:var(--accent2);font-weight:500', b.pageNum + 'p')
+        + G('font-size:12px;color:var(--text2)', b.date + '（' + dow + '）')
+        + dchk('draft') + dchk('inks') + dchk('surface')
+        + '</div>';
     });
-    html += '</tbody></table>';
   }
 
   // 旧タスクブロック（互換性のため残す）
@@ -1234,10 +1265,13 @@ function renderTasks() {
   const today = new Date(); today.setHours(0,0,0,0);
 
   // フィルター行（タグ＋完了フィルター）
+  const fAll  = !taskFilterTag && taskFilterDone === null;
+  const fTodo = taskFilterDone === false;
+  const fDone = taskFilterDone === true;
   let html = '<div class="task-filters">'
-    + `<span class="tag-pill ${!taskFilterTag&&taskFilterDone===null?'active':''}" style="color:var(--text2);border-color:var(--border)" onclick="taskFilterTag=null;taskFilterDone=null;renderTasks()">すべて</span>`
-    + `<span class="tag-pill ${taskFilterDone===false?'active':''}" style="color:var(--accent2);border-color:var(--accent2)" onclick="taskFilterDone=taskFilterDone===false?null:false;renderTasks()">未完了</span>`
-    + `<span class="tag-pill ${taskFilterDone===true?'active':''}" style="color:var(--success);border-color:var(--success)" onclick="taskFilterDone=taskFilterDone===true?null:true;renderTasks()">完了済</span>`;
+    + `<span class="tag-pill${fAll?' active':''}" style="color:var(--text2);${fAll?'background:var(--bg3);border-color:var(--text2);':'border-color:var(--border)'}" onclick="taskFilterTag=null;taskFilterDone=null;renderTasks()">すべて</span>`
+    + `<span class="tag-pill${fTodo?' active':''}" style="color:var(--accent2);${fTodo?'background:var(--accent2)22;border-color:var(--accent2);font-weight:600;':'border-color:transparent'}" onclick="taskFilterDone=taskFilterDone===false?null:false;renderTasks()">未完了</span>`
+    + `<span class="tag-pill${fDone?' active':''}" style="color:var(--success);${fDone?'background:var(--success)22;border-color:var(--success);font-weight:600;':'border-color:transparent'}" onclick="taskFilterDone=taskFilterDone===true?null:true;renderTasks()">完了済</span>`;
   if (S.tags.length) html += '<span style="color:var(--border);padding:0 4px">|</span>';
   S.tags.forEach(g => {
     const active = taskFilterTag === g.id;
