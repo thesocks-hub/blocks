@@ -486,6 +486,7 @@ let S = {
   calMonth: new Date().getMonth(),
   selectedWork: null,
   calScrollInitialized: false,
+  calFilterTag: null,
 };
 
 // ===== PERSIST =====
@@ -652,7 +653,16 @@ function renderTopbar() {
   } else if (S.view === 'tasks') {
     act.innerHTML = `<button class="btn" onclick="openTagManager()">タグ管理</button><button class="btn primary" onclick="openNewTask()">＋ タスク追加</button>`;
   } else if (S.view === 'calendar') {
-    act.innerHTML = `<button class="btn" onclick="calToday()" style="font-size:12px">今日</button><button class="btn" onclick="switchView('settings')" title="設定" style="margin-left:4px">⚙</button>`;
+    const tagBtns = S.tags.map(g => {
+      const active = S.calFilterTag === g.id;
+      const label = (g.emoji || '') + (g.emoji ? '' : g.name.slice(0,4));
+      return `<button class="btn" onclick="calSetFilter('${g.id}')" title="${g.name}"
+        style="font-size:12px;padding:4px 8px;${active?'background:'+g.color+'33;border-color:'+g.color+';color:'+g.color+';':''}">${label}</button>`;
+    }).join('');
+    const clearBtn = S.calFilterTag ? `<button class="btn" onclick="calSetFilter(null)" style="font-size:11px;color:var(--text3)">✕</button>` : '';
+    act.innerHTML = tagBtns + clearBtn
+      + `<button class="btn" onclick="calToday()" style="font-size:12px;margin-left:4px">今日</button>`
+      + `<button class="btn" onclick="switchView('settings')" title="設定" style="margin-left:4px">⚙</button>`;
   } else {
     act.innerHTML = '';
   }
@@ -892,14 +902,19 @@ function renderCalendarScroll(el) {
         style="background:${w.color}22;color:${w.color};border-left:3px solid ${w.color};${isDone?'opacity:0.4;text-decoration:line-through':''}">${lbl}</div>`;
     });
 
-    // スタンドアロンタスク
-    S.tasks.filter(t => t.date === ds).forEach(t => {
-      const tagColors = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)?.color).filter(Boolean);
-      const c = tagColors.length ? tagColors[0] : '#888';
+    // スタンドアロンタスク（絵文字・フィルター）
+    S.tasks.filter(t => {
+      if (!t.date || t.date !== ds) return false;
+      if (S.calFilterTag && !(t.tagIds||[]).includes(S.calFilterTag)) return false;
+      return true;
+    }).forEach(t => {
+      const tags = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)).filter(Boolean);
+      const c = tags.length ? tags[0].color : '#888';
+      const emoji = tags.length && tags[0].emoji ? tags[0].emoji + ' ' : '';
       chips += `<div class="cal-scroll-chip chip-draggable ${t.done?'done':''}"
         data-drag-type="task" data-drag-id="${t.id}"
         style="background:${c}22;color:${c};border-left:3px solid ${c};${t.done?'opacity:0.4;text-decoration:line-through':''}"
-        >${(t.title||'タスク').slice(0,18)}</div>`;
+        >${emoji}${(t.title||'タスク').slice(0,18)}</div>`;
     });
 
     // サブタスク（親タスク名付き）
@@ -977,15 +992,20 @@ function calCell(date, other, today) {
       data-drag-type="block" data-drag-id="${b.id}"
       style="border-left:2px solid ${w.color};cursor:grab;touch-action:none">${lbl}</div>`;
   });
-  // スタンドアロンタスク（日付あり）
-  S.tasks.filter(t => t.date === ds).forEach(t => {
-    const tagColors = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)?.color).filter(Boolean);
-    const chipColor = tagColors.length ? tagColors[0] : '#666';
-    const chipBg    = tagColors.length ? tagColors[0] + '22' : '#66666622';
+  // スタンドアロンタスク（日付あり・カレンダーフィルター適用）
+  S.tasks.filter(t => {
+    if (!t.date || t.date !== ds) return false;
+    if (S.calFilterTag && !(t.tagIds||[]).includes(S.calFilterTag)) return false;
+    return true;
+  }).forEach(t => {
+    const tags = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)).filter(Boolean);
+    const chipColor = tags.length ? tags[0].color : '#666';
+    const chipBg    = tags.length ? tags[0].color + '22' : '#66666622';
+    const emoji     = tags.length && tags[0].emoji ? tags[0].emoji + ' ' : '';
     chips += `<div class="block-chip chip-draggable standalone-task ${t.done?'done':''}"
       data-drag-type="task" data-drag-id="${t.id}"
-      style="border-left:2px solid ${chipColor};background:${chipBg};color:${tagColors.length?chipColor:'#aaa'};cursor:grab;touch-action:none"
-      >${(t.title||'タスク').slice(0,12)}</div>`;
+      style="border-left:2px solid ${chipColor};background:${chipBg};color:${tags.length?chipColor:'#aaa'};cursor:grab;touch-action:none"
+      >${emoji}${(t.title||'タスク').slice(0,12)}</div>`;
   });
 
   // 日付ありサブタスクもカレンダーに表示（親タスク名付き）
@@ -1023,6 +1043,11 @@ function calNav(d) {
   S.calScrollInitialized = false; // 月移動時は先頭にスクロール
   renderCalendar();
 }
+function calSetFilter(tagId) {
+  S.calFilterTag = tagId;
+  renderAll();
+}
+
 function calToday() {
   const t = new Date(); S.calYear = t.getFullYear(); S.calMonth = t.getMonth();
   S.calScrollInitialized = false; // 「今日」ボタンは今日へスクロール
@@ -1275,7 +1300,7 @@ function renderTasks() {
   if (S.tags.length) html += '<span style="color:var(--border);padding:0 4px">|</span>';
   S.tags.forEach(g => {
     const active = taskFilterTag === g.id;
-    html += `<span class="tag-pill ${active?'active':''}" style="color:${g.color};background:${g.color}18" onclick="taskFilterTag=taskFilterTag==='${g.id}'?null:'${g.id}';renderTasks()">${g.name}</span>`;
+    html += `<span class="tag-pill ${active?'active':''}" style="color:${g.color};background:${g.color}18" onclick="taskFilterTag=taskFilterTag==='${g.id}'?null:'${g.id}';renderTasks()">${g.emoji?g.emoji+' ':''}${g.name}</span>`;
   });
   html += `<span class="tag-pill" style="color:var(--text3)" onclick="openTagManager()">＋ タグ</span></div>`;
 
@@ -1316,7 +1341,7 @@ function renderTasks() {
 function renderTaskCard(t) {
   const tagHtml = (t.tagIds||[]).map(id => {
     const g = S.tags.find(g => g.id === id);
-    return g ? `<span class="task-tag" style="background:${g.color}22;color:${g.color}">${g.name}</span>` : '';
+    return g ? `<span class="task-tag" style="background:${g.color}22;color:${g.color}">${g.emoji?g.emoji+' ':''}${g.name}</span>` : '';
   }).join('');
   const dateStr2 = t.date ? `${t.date}${t.time ? ' ' + t.time : ''}` : '';
   const chkSvg = `<svg width="10" height="10" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="white" stroke-width="2"/></svg>`;
@@ -1557,7 +1582,7 @@ function tagCheckboxesHTML(selectedIds) {
       <input type="checkbox" data-tag-id="${g.id}" ${sel?'checked':''}
         style="display:none"
         onchange="this.closest('label').style.background=this.checked?'${g.color}33':'var(--bg3)';this.closest('label').style.borderColor=this.checked?'${g.color}':'var(--border)';this.closest('label').style.color=this.checked?'${g.color}':'var(--text2)'">
-      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color};flex-shrink:0"></span>
+      ${g.emoji ? `<span style="font-size:13px">${g.emoji}</span>` : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color};flex-shrink:0"></span>`}
       ${g.name}
     </label>`;
   }).join('') + '</div>';
@@ -1718,11 +1743,14 @@ function openTagManager() {
         </div>
         <input type="color" value="${g.color}" onchange="updateTagColor('${g.id}',this.value)"
           style="width:28px;height:28px;padding:2px;border:none;background:none;cursor:pointer;flex-shrink:0">
+        <input type="text" value="${g.emoji||''}" onchange="updateTagEmoji('${g.id}',this.value)"
+          placeholder="😀" style="width:38px;padding:4px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:16px;text-align:center;font-family:var(--font);outline:none;flex-shrink:0">
         <input type="text" value="${g.name}" onchange="updateTagName('${g.id}',this.value)"
           style="flex:1;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:13px;font-family:var(--font);outline:none">
         <button class="btn danger" style="padding:2px 8px;font-size:11px" onclick="deleteTag('${g.id}')">削除</button>
       </div>`).join('');
     const addRow = `<div style="display:flex;gap:6px;margin-top:10px">
+      <input id="f-new-tag-emoji" placeholder="😀" style="width:40px;padding:7px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:16px;text-align:center;font-family:var(--font);outline:none;flex-shrink:0">
       <input id="f-new-tag" placeholder="新しいタグ名" style="flex:1;padding:7px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:13px;font-family:var(--font);outline:none">
       <input id="f-new-tag-color" type="color" value="#7a9abf" style="width:36px;padding:2px;border:none;background:var(--bg3);border-radius:var(--radius);cursor:pointer">
       <button class="btn primary" onclick="addTag()" style="flex-shrink:0">追加</button>
@@ -1739,10 +1767,16 @@ function openTagManager() {
 function addTag() {
   const name = document.getElementById('f-new-tag')?.value.trim();
   const color = document.getElementById('f-new-tag-color')?.value || '#7a9abf';
+  const emoji = document.getElementById('f-new-tag-emoji')?.value.trim() || '';
   if (!name) return;
-  S.tags.push({ id: uid(), name, color });
+  S.tags.push({ id: uid(), name, color, emoji });
   save();
   if (window._reRenderTagList) window._reRenderTagList();
+}
+
+function updateTagEmoji(tagId, emoji) {
+  const g = S.tags.find(g => g.id === tagId);
+  if (g) { g.emoji = emoji.trim(); save(); renderAll(); }
 }
 
 function updateTagColor(tagId, color) {
