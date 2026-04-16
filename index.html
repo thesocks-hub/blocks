@@ -655,17 +655,17 @@ function renderTopbar() {
   } else if (S.view === 'calendar') {
     const isMob = window.innerWidth <= 700;
     if (isMob && S.tags.length) {
-      // スマホ: プルダウン（複数選択はChrome/Safariのnative multipleで対応）
-      const opts = S.tags.map(g => {
-        const sel = S.calFilterTags.includes(g.id) ? 'selected' : '';
-        const lbl = (g.emoji ? g.emoji + ' ' : '') + g.name;
-        return `<option value="${g.id}" ${sel}>${lbl}</option>`;
-      }).join('');
-      act.innerHTML = `<select id="cal-filter-sel" multiple
-        style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;padding:3px 6px;max-width:140px;height:28px;cursor:pointer"
-        onchange="calFilterFromSelect(this)">
-        <option value="" ${!S.calFilterTags.length?'selected':''}>— フィルター —</option>${opts}
-      </select>`
+      // スマホ: フィルターボタン1つ → タップでピッカーを開く
+      const activeNames = S.calFilterTags.map(id => {
+        const g = S.tags.find(g => g.id === id);
+        return g ? (g.emoji || g.name.slice(0,4)) : '';
+      }).filter(Boolean);
+      const filterLabel = activeNames.length ? activeNames.join(' ') : '🏷️';
+      const isActive = S.calFilterTags.length > 0;
+      act.innerHTML = `<button class="btn" onclick="openCalFilterPicker()"
+        style="font-size:13px;padding:4px 10px;${isActive?'background:var(--accent2)33;border-color:var(--accent2);color:var(--accent);':''}"
+        title="タグフィルター">${filterLabel}</button>`
+        + (isActive ? `<button class="btn" onclick="calSetFilter(null)" style="font-size:11px;color:var(--text3);margin-left:2px">✕</button>` : '')
         + `<button class="btn" onclick="calToday()" style="font-size:12px;margin-left:4px">今日</button>`;
     } else {
       const tagBtns = S.tags.map(g => {
@@ -1076,6 +1076,23 @@ function calFilterFromSelect(sel) {
   S.calFilterTags = Array.from(sel.selectedOptions)
     .map(o => o.value).filter(v => v !== '');
   renderAll();
+}
+
+function openCalFilterPicker() {
+  const body = S.tags.map(g => {
+    const checked = S.calFilterTags.includes(g.id);
+    const lbl = (g.emoji ? g.emoji + ' ' : '') + g.name;
+    return `<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;font-size:15px;user-select:none">
+      <input type="checkbox" data-filter-tag="${g.id}" ${checked?'checked':''}
+        style="width:18px;height:18px;accent-color:${g.color};cursor:pointer;flex-shrink:0">
+      <span style="flex:1;${checked?'color:'+g.color+';font-weight:600':''}">${lbl}</span>
+    </label>`;
+  }).join('');
+  openModal('タグフィルター', body, '適用', () => {
+    S.calFilterTags = [...document.querySelectorAll('[data-filter-tag]:checked')]
+      .map(el => el.dataset.filterTag);
+    closeModal(); renderAll();
+  });
 }
 
 function calToday() {
