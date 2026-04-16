@@ -486,7 +486,7 @@ let S = {
   calMonth: new Date().getMonth(),
   selectedWork: null,
   calScrollInitialized: false,
-  calFilterTag: null,
+  calFilterTags: [],  // 選択中のタグIDリスト
 };
 
 // ===== PERSIST =====
@@ -653,16 +653,32 @@ function renderTopbar() {
   } else if (S.view === 'tasks') {
     act.innerHTML = `<button class="btn" onclick="openTagManager()">タグ管理</button><button class="btn primary" onclick="openNewTask()">＋ タスク追加</button>`;
   } else if (S.view === 'calendar') {
-    const tagBtns = S.tags.map(g => {
-      const active = S.calFilterTag === g.id;
-      const label = (g.emoji || '') + (g.emoji ? '' : g.name.slice(0,4));
-      return `<button class="btn" onclick="calSetFilter('${g.id}')" title="${g.name}"
-        style="font-size:12px;padding:4px 8px;${active?'background:'+g.color+'33;border-color:'+g.color+';color:'+g.color+';':''}">${label}</button>`;
-    }).join('');
-    const clearBtn = S.calFilterTag ? `<button class="btn" onclick="calSetFilter(null)" style="font-size:11px;color:var(--text3)">✕</button>` : '';
-    act.innerHTML = tagBtns + clearBtn
-      + `<button class="btn" onclick="calToday()" style="font-size:12px;margin-left:4px">今日</button>`
-      + `<button class="btn" onclick="switchView('settings')" title="設定" style="margin-left:4px">⚙</button>`;
+    const isMob = window.innerWidth <= 700;
+    if (isMob && S.tags.length) {
+      // スマホ: プルダウン（複数選択はChrome/Safariのnative multipleで対応）
+      const opts = S.tags.map(g => {
+        const sel = S.calFilterTags.includes(g.id) ? 'selected' : '';
+        const lbl = (g.emoji ? g.emoji + ' ' : '') + g.name;
+        return `<option value="${g.id}" ${sel}>${lbl}</option>`;
+      }).join('');
+      act.innerHTML = `<select id="cal-filter-sel" multiple
+        style="background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;padding:3px 6px;max-width:140px;height:28px;cursor:pointer"
+        onchange="calFilterFromSelect(this)">
+        <option value="" ${!S.calFilterTags.length?'selected':''}>— フィルター —</option>${opts}
+      </select>`
+        + `<button class="btn" onclick="calToday()" style="font-size:12px;margin-left:4px">今日</button>`;
+    } else {
+      const tagBtns = S.tags.map(g => {
+        const active = S.calFilterTags.includes(g.id);
+        const label = (g.emoji || '') + (g.emoji ? '' : g.name.slice(0,4));
+        return `<button class="btn" onclick="calSetFilter('${g.id}')" title="${g.name}"
+          style="font-size:12px;padding:4px 10px;margin-left:4px;${active?'background:'+g.color+'33;border-color:'+g.color+';color:'+g.color+';font-weight:600;':''}">${label}</button>`;
+      }).join('');
+      const clearBtn = S.calFilterTags.length ? `<button class="btn" onclick="calSetFilter(null)" style="font-size:11px;color:var(--text3);margin-left:4px">✕</button>` : '';
+      act.innerHTML = tagBtns + clearBtn
+        + `<button class="btn" onclick="calToday()" style="font-size:12px;margin-left:6px">今日</button>`
+        + `<button class="btn" onclick="switchView('settings')" title="設定" style="margin-left:4px">⚙</button>`;
+    }
   } else {
     act.innerHTML = '';
   }
@@ -905,7 +921,7 @@ function renderCalendarScroll(el) {
     // スタンドアロンタスク（絵文字・フィルター）
     S.tasks.filter(t => {
       if (!t.date || t.date !== ds) return false;
-      if (S.calFilterTag && !(t.tagIds||[]).includes(S.calFilterTag)) return false;
+      if (S.calFilterTags.length && !S.calFilterTags.some(id => (t.tagIds||[]).includes(id))) return false;
       return true;
     }).forEach(t => {
       const tags = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)).filter(Boolean);
@@ -917,8 +933,9 @@ function renderCalendarScroll(el) {
         >${emoji}${(t.title||'タスク').slice(0,18)}</div>`;
     });
 
-    // サブタスク（親タスク名付き）
+    // サブタスク（親タスク名付き・親タグでフィルター）
     S.tasks.forEach(t => {
+      if (S.calFilterTags.length && !S.calFilterTags.some(id => (t.tagIds||[]).includes(id))) return;
       (t.subTasks||[]).forEach(s => {
         if (s.date !== ds) return;
         const tagColors = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)?.color).filter(Boolean);
@@ -995,7 +1012,7 @@ function calCell(date, other, today) {
   // スタンドアロンタスク（日付あり・カレンダーフィルター適用）
   S.tasks.filter(t => {
     if (!t.date || t.date !== ds) return false;
-    if (S.calFilterTag && !(t.tagIds||[]).includes(S.calFilterTag)) return false;
+    if (S.calFilterTags.length && !S.calFilterTags.some(id => (t.tagIds||[]).includes(id))) return false;
     return true;
   }).forEach(t => {
     const tags = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)).filter(Boolean);
@@ -1008,8 +1025,9 @@ function calCell(date, other, today) {
       >${emoji}${(t.title||'タスク').slice(0,12)}</div>`;
   });
 
-  // 日付ありサブタスクもカレンダーに表示（親タスク名付き）
+  // 日付ありサブタスクもカレンダーに表示（親タスク名付き・親タグでフィルター）
   S.tasks.forEach(t => {
+    if (S.calFilterTags.length && !S.calFilterTags.some(id => (t.tagIds||[]).includes(id))) return;
     (t.subTasks||[]).forEach(s => {
       if (s.date !== ds) return;
       const tagColors = (t.tagIds||[]).map(id => S.tags.find(g=>g.id===id)?.color).filter(Boolean);
@@ -1044,7 +1062,19 @@ function calNav(d) {
   renderCalendar();
 }
 function calSetFilter(tagId) {
-  S.calFilterTag = tagId;
+  if (!tagId) {
+    S.calFilterTags = [];
+  } else {
+    const idx = S.calFilterTags.indexOf(tagId);
+    if (idx >= 0) S.calFilterTags.splice(idx, 1);
+    else S.calFilterTags.push(tagId);
+  }
+  renderAll();
+}
+
+function calFilterFromSelect(sel) {
+  S.calFilterTags = Array.from(sel.selectedOptions)
+    .map(o => o.value).filter(v => v !== '');
   renderAll();
 }
 
@@ -1150,7 +1180,7 @@ function renderDetail() {
   // 列: [識別 80px] [日付 auto] [D 32px] [I 32px] [S 32px] (作画スケジュール)
   //     [識別 80px] [日付 auto] [✓ 32px] (作画準備 - D/I/Sはなし)
   // → 全行共通: grid-template-columns: 80px 1fr 32px 32px 32px
-  const gridCols = '80px 1fr 32px 32px 32px';
+  const gridCols = '80px 1fr 40px 32px 32px 32px'; // タスク名・日付・削除・D・I・S
   const G = (style, content) => '<div style="' + style + '">' + content + '</div>';
 
   // 作画準備セクション
@@ -1166,7 +1196,8 @@ function renderDetail() {
     html += '<div style="display:grid;grid-template-columns:' + gridCols + ';padding:5px 10px;border-bottom:1px solid var(--border)">'
       + G('font-size:11px;color:var(--text3)', 'タスク')
       + G('font-size:11px;color:var(--text3)', '日付')
-      + G('font-size:11px;color:var(--accent2);font-weight:600;text-align:center;grid-column:3/6', '✓')
+      + G('', '')
+      + G('font-size:11px;color:var(--accent2);font-weight:600;text-align:center;grid-column:4/7', '✓')
       + '</div>';
     workTasks.forEach(function(t) {
       const dow = t.date ? '（' + DAYS_JP[parseDate(t.date).getDay()] + '）' : '';
@@ -1174,7 +1205,8 @@ function renderDetail() {
       html += '<div style="display:grid;grid-template-columns:' + gridCols + ';align-items:center;padding:8px 10px;border-bottom:1px solid var(--border);' + (t.done?'opacity:0.4':'') + '">'
         + G('overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;font-size:13px' + (t.done?';text-decoration:line-through':''), '<span onclick="openEditWorkTask(\'' + work.id + '\',\'' + t.id + '\')" style="color:var(--text)" title="クリックで編集">' + (t.title||'タスク') + '</span>')
         + G('font-size:12px;color:var(--text2)', t.date ? t.date + dow : '—')
-        + G('display:flex;justify-content:center;align-items:center;grid-column:3/6', '<input type="checkbox" ' + chkd + ' onchange="toggleWorkTaskById(\'' + work.id + '\',\'' + t.id + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer">')
+        + G('display:flex;justify-content:center;align-items:center', '<button onclick="deleteWorkTask(\'' + work.id + '\',\'' + t.id + '\')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;line-height:1;padding:0 4px" title="削除">×</button>')
+        + G('display:flex;justify-content:center;align-items:center;grid-column:4/7', '<input type="checkbox" ' + chkd + ' onchange="toggleWorkTaskById(\'' + work.id + '\',\'' + t.id + '\',this.checked)" style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer">')
         + '</div>';
     });
   }
