@@ -247,6 +247,7 @@
   .badge.ok { background: #1b3528; color: #6dbf8a; }
   .badge.ng { background: #3a1e1e; color: #e07070; }
   .badge.pending { background: var(--bg3); color: var(--text3); }
+  .badge.done { background: #1e2a3a; color: #7a9abf; }
 
   /* ===== WORK DETAIL ===== */
   .work-header-card { background: var(--bg2); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 14px; border-left: 4px solid var(--border); }
@@ -486,14 +487,16 @@ let S = {
   calMonth: new Date().getMonth(),
   selectedWork: null,
   calScrollInitialized: false,
-  calFilterTags: [],  // 選択中のタグIDリスト
+  calFilterTags: [],
+  worksCompletedOpen: false,
+  dayCaps: { 2: 2, 4: 4, 5: 4 },
 };
 
 // ===== PERSIST =====
 window._S = S; // Firebaseモジュールからアクセスできるよう公開
 
 function save() {
-  const data = { works: S.works, blocks: S.blocks, tasks: S.tasks, tags: S.tags };
+  const data = { works: S.works, blocks: S.blocks, tasks: S.tasks, tags: S.tags, dayCaps: S.dayCaps };
   // localStorageに即時保存（オフライン対応）
   try { localStorage.setItem('blocks_v1', JSON.stringify(data)); } catch(e) {}
   // Firebaseにも非同期保存（設定済みの場合のみ）
@@ -502,7 +505,7 @@ function save() {
 function load() {
   try {
     const d = JSON.parse(localStorage.getItem('blocks_v1') || 'null');
-    if (d) { S.works = d.works || []; S.blocks = d.blocks || []; S.tasks = d.tasks || []; S.tags = d.tags || []; }
+    if (d) { S.works = d.works || []; S.blocks = d.blocks || []; S.tasks = d.tasks || []; S.tags = d.tags || []; S.dayCaps = d.dayCaps || { 2: 2, 4: 4, 5: 4 }; }
   } catch(e) {}
   if (!S.works.length) seedData();
 }
@@ -543,8 +546,8 @@ function autoBlocks(work) {
   while (watch-- > 0) {
     d.setDate(d.getDate() - 1);
     const dow = d.getDay();
-    if (!DRAW_DAYS.includes(dow)) continue;
-    daySlots.unshift({ date: dateStr(d), cap: DAY_CAPS[dow] });
+    if (!S.dayCaps[dow]) continue;
+    daySlots.unshift({ date: dateStr(d), cap: S.dayCaps[dow] });
     const totalCap = daySlots.reduce((s, x) => s + x.cap, 0);
     if (totalCap >= work.pages) break;
   }
@@ -581,6 +584,8 @@ function blockDone(b) {
 
 function getProgress(workId) {
   const work = S.works.find(w => w.id === workId);
+  if (!work) return { pct: 0, status: 'pending', done: 0, total: 0 };
+  if (work.nyukoDone) return { pct: 100, status: 'done', done: 0, total: 0 };
   const wtype = work?.workType || 'comic';
   const today = new Date(); today.setHours(0,0,0,0);
 
@@ -685,7 +690,8 @@ function renderTopbar() {
 }
 
 function renderSidebar() {
-  document.getElementById('work-list-nav').innerHTML = S.works.map(w =>
+  const activeWorks = S.works.filter(w => !w.nyukoDone);
+  document.getElementById('work-list-nav').innerHTML = activeWorks.map(w =>
     `<div class="work-item ${S.selectedWork===w.id?'active':''}" data-id="${w.id}"
       onclick="switchView('work-detail','${w.id}');closeMobileMenu()">
       <div class="work-dot" style="background:${w.color}"></div>
@@ -1108,7 +1114,7 @@ function renderWorks() {
     el.innerHTML = `<div class="empty-state"><p>作品がありません</p><br><button class="btn primary" onclick="openNewWork()">＋ 最初の作品を追加</button></div>`;
     return;
   }
-  el.innerHTML = S.works.map(w => {
+  const _renderCard = (w) => {
     const prog = getProgress(w.id);
     const dl = daysLeft(w.deadline);
     return `<div class="work-card" style="border-left-color:${w.color}" onclick="switchView('work-detail','${w.id}')">
@@ -1124,11 +1130,26 @@ function renderWorks() {
       </div>
       <div class="progress-bar"><div class="progress-fill" style="width:${prog.pct}%;background:${w.color}"></div></div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-        <span class="badge ${prog.status}">${prog.status==='ok'?'進捗OK':prog.status==='ng'?'進捗NG':'未着手'}</span>
-        <span style="font-size:11px;color:var(--text3)">${prog.done}/${prog.total}完了 (${prog.pct}%)</span>
+        <span class="badge ${prog.status==='done'?'done':prog.status}">${prog.status==='done'?'入稿完了':prog.status==='ok'?'進捗OK':prog.status==='ng'?'進捗NG':'未着手'}</span>
+        ${prog.status !== 'done' ? `<span style="font-size:11px;color:var(--text3)">${prog.done}/${prog.total}完了 (${prog.pct}%)</span>` : ''}
       </div>
     </div>`;
-  }).join('');
+  };
+  const _active = S.works.filter(w => !w.nyukoDone);
+  const _done   = S.works.filter(w =>  w.nyukoDone);
+  let _out = _active.map(_renderCard).join('');
+  if (_done.length) {
+    const _open = S.worksCompletedOpen;
+    _out += `<div style="margin-top:20px">
+      <div onclick="S.worksCompletedOpen=!S.worksCompletedOpen;renderWorks()"
+        style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 4px;color:var(--text3);font-size:12px;user-select:none;border-top:1px solid var(--border)">
+        <span style="font-size:10px">${_open?'▼':'▶'}</span>
+        <span>完了作品 (${_done.length})</span>
+      </div>
+      ${_open ? '<div>' + _done.map(_renderCard).join('') + '</div>' : ''}
+    </div>`;
+  }
+  el.innerHTML = _out;
 }
 
 // ===== WORK DETAIL =====
@@ -1155,8 +1176,8 @@ function renderDetail() {
     ${work.memo ? `<div style="font-size:12px;color:var(--text3);margin-top:6px;line-height:1.6;white-space:pre-wrap">${work.memo}</div>` : ''}
     <div class="progress-bar" style="margin-top:8px"><div class="progress-fill" style="width:${prog.pct}%;background:${work.color}"></div></div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-      <span class="badge ${prog.status}">${prog.status==='ok'?'進捗OK':prog.status==='ng'?'進捗NG':'未着手'}</span>
-      <span style="font-size:11px;color:var(--text3)">${prog.done}/${prog.total}完了 (${prog.pct}%)</span>
+      <span class="badge ${prog.status==='done'?'done':prog.status}">${prog.status==='done'?'入稿完了':prog.status==='ok'?'進捗OK':prog.status==='ng'?'進捗NG':'未着手'}</span>
+      ${prog.status !== 'done' ? `<span style="font-size:11px;color:var(--text3)">${prog.done}/${prog.total}完了 (${prog.pct}%)</span>` : ''}
     </div>
   </div>`;
 
@@ -1169,7 +1190,7 @@ function renderDetail() {
         <input type="checkbox" ${work.nameDone?'checked':''} onchange="toggleWorkFlag('${work.id}','nameDone',this.checked)"
           style="width:15px;height:15px;accent-color:var(--accent2);cursor:pointer">
         <span>ネーム完了</span>
-        ${work.nameDeadline ? `<span class="ms-deadline ${work.nameDone?'':'ms-deadline-pending'}">〆 ${work.nameDeadline}（${DAYS_JP[parseDate(work.nameDeadline).getDay()]}）</span>` : ''}
+        ${!work.nyukoDone && work.nameDeadline ? `<span class="ms-deadline ${work.nameDone?'':'ms-deadline-pending'}">〆 ${work.nameDeadline}（${DAYS_JP[parseDate(work.nameDeadline).getDay()]}）</span>` : ''}
       </label>
     </div>`;
   }
@@ -1458,10 +1479,16 @@ function renderSettings() {
       <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
     </div>
     <div class="settings-section">
-      <h3>作画設定（デフォルト）</h3>
-      <div class="settings-row"><span class="lbl">火曜上限</span><span>2ページ（半日）</span></div>
-      <div class="settings-row"><span class="lbl">木曜上限</span><span>4ページ</span></div>
-      <div class="settings-row"><span class="lbl">金曜上限</span><span>4ページ</span></div>
+      <h3>作画設定</h3>
+      <p style="font-size:11px;color:var(--text3);margin-bottom:10px">新規作品作成時のブロック自動生成に使用します</p>
+      ${[['火',2],['水（0=稼働なし）',3],['木',4],['金',5]].map(([label,dow]) =>
+        `<div class="settings-row"><span class="lbl">${label}曜上限</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" min="0" max="20" value="${S.dayCaps[dow]||0}"
+              onchange="updateDayCap(${dow},this.value)"
+              style="width:52px;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);font-size:13px;text-align:center;font-family:var(--font);outline:none">
+            <span style="font-size:12px;color:var(--text3)">ページ</span>
+          </div></div>`).join('')}
       <div class="settings-row"><span class="lbl">1ページあたり</span><span>${MINS_PER_PAGE}分</span></div>
     </div>
     <div class="settings-section">
@@ -1485,6 +1512,11 @@ function toggleWorkFlag(workId, key, val) {
   if (!w) return;
   w[key] = val;
   save(); renderAll();
+}
+
+function updateDayCap(dow, val) {
+  const n = parseInt(val);
+  if (!isNaN(n) && n >= 0) { S.dayCaps[dow] = n; save(); }
 }
 
 function toggleCheck(blockId, key, val) {
