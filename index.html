@@ -685,7 +685,8 @@ function renderTopbar() {
 }
 
 function renderSidebar() {
-  document.getElementById('work-list-nav').innerHTML = S.works.map(w =>
+  const activeWorks = S.works.filter(w => !w.nyukoDone);
+  document.getElementById('work-list-nav').innerHTML = activeWorks.map(w =>
     `<div class="work-item ${S.selectedWork===w.id?'active':''}" data-id="${w.id}"
       onclick="switchView('work-detail','${w.id}');closeMobileMenu()">
       <div class="work-dot" style="background:${w.color}"></div>
